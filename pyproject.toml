@@ -1,0 +1,19 @@
+[project]
+name = "auto-editor"
+version = "0.1.0"
+description = "Особиста програма AI-автомонтажу відео"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.setuptools]
+packages = ["core", "server", "worker", "analysis", "edit", "render", "sources"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

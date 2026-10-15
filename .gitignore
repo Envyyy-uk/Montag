@@ -1,0 +1,36 @@
+# Секрети
+.env
+*.token.json
+credentials*.json
+client_secret*.json
+
+# Дані користувача
+library/
+inbox/
+*.sqlite3
+*.db
+
+# Великі відео (тестові — лише короткі або через LFS)
+*.mp4
+*.mov
+*.MOV
+*.mts
+*.MTS
+*.mkv
+!tests/media/*.mp4
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Фронтенд
+web/node_modules/
+web/dist/
+
+# Інше
+.DS_Store
+Thumbs.db
+.claude/settings.local.json
