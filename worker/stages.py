@@ -162,10 +162,10 @@ def analyze_media(conn: sqlite3.Connection, settings: Settings, payload: dict, p
 
 
 def request_edit(conn: sqlite3.Connection, project_id: int) -> int:
-    """«Монтувати»: проєкт іде в чергу на монтаж."""
+    """«Монтувати»: проєкт іде в чергу — спершу AI-оцінка, потім монтаж."""
     conn.execute(f"UPDATE projects SET status = 'queued', edit_requested_at = {NOW_SQL},"
                  f" updated_at = {NOW_SQL} WHERE id = ?", (project_id,))
-    return queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id)
+    return queue.enqueue(conn, "score_project", {"project_id": project_id}, project_id=project_id)
 
 
 def _parse_ts(ts: str) -> datetime:

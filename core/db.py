@@ -127,6 +127,63 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX audio_events_media ON audio_events(media_id, start);
     """,
+    # 4 — Gemini: файли, запити, оцінки, витрати (Спринт 4)
+    """
+    ALTER TABLE jobs ADD COLUMN run_after TEXT;
+    ALTER TABLE spend ADD COLUMN request_id INTEGER;
+
+    CREATE TABLE gemini_files (
+        id          INTEGER PRIMARY KEY,
+        media_id    INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+        win_start   REAL NOT NULL,
+        win_end     REAL NOT NULL,
+        local_path  TEXT NOT NULL,
+        uri         TEXT,
+        name        TEXT,
+        expires_at  TEXT,
+        UNIQUE (media_id, win_start)
+    );
+
+    CREATE TABLE gemini_requests (
+        id            INTEGER PRIMARY KEY,
+        project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        media_id      INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+        win_start     REAL NOT NULL,
+        win_end       REAL NOT NULL,
+        style_key     TEXT NOT NULL,
+        segments      TEXT NOT NULL,
+        attempt       INTEGER NOT NULL DEFAULT 1,
+        mode          TEXT NOT NULL DEFAULT 'batch' CHECK (mode IN ('batch', 'online')),
+        status        TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending', 'submitted', 'done', 'invalid', 'failed')),
+        batch_name    TEXT,
+        est_cost      REAL NOT NULL DEFAULT 0,
+        cost          REAL,
+        event_type    TEXT,
+        event_confidence REAL,
+        error         TEXT,
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX gemini_requests_status ON gemini_requests(status, batch_name);
+
+    CREATE TABLE scores (
+        id          INTEGER PRIMARY KEY,
+        media_id    INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+        start       REAL NOT NULL,
+        end         REAL NOT NULL,
+        style_key   TEXT NOT NULL,
+        source      TEXT NOT NULL CHECK (source IN ('gemini', 'local')),
+        score       REAL NOT NULL,
+        description TEXT,
+        tags        TEXT NOT NULL DEFAULT '[]',
+        vertical_ok INTEGER,
+        subject_x   REAL,
+        request_id  INTEGER REFERENCES gemini_requests(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        UNIQUE (media_id, start, end, style_key)
+    );
+    """,
 ]
 
 

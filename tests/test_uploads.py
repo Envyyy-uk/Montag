@@ -79,7 +79,7 @@ def test_resumable_upload_end_to_end(client, settings, media_dir):
 
     assert client.post(f"/api/projects/{pid}/edit").status_code == 202
     statuses = {(j["kind"], j["status"]) for j in client.get("/api/queue").json()}
-    assert ("edit_project", "queued") in statuses and ("prepare_media", "done") in statuses
+    assert ("score_project", "queued") in statuses and ("prepare_media", "done") in statuses
 
 
 def test_upload_validation(client):

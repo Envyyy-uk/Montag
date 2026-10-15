@@ -15,12 +15,15 @@ from worker import queue, stages
 
 log = logging.getLogger(__name__)
 
-Handler = Callable[..., None]
+Handler = Callable[..., str | None]
 
 
 def default_handlers() -> dict[str, Handler]:
     # Етапи наступних спринтів (edit_project тощо) додаються сюди.
-    return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media}
+    from analysis import scoring
+
+    return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media,
+            "score_project": scoring.score_project, "poll_batch": scoring.poll_batch}
 
 
 class Worker:
@@ -46,14 +49,18 @@ class Worker:
         handler = self.handlers[job["kind"]]
         log.info("завдання %s (%s) почалось", job["id"], job["kind"])
         try:
-            handler(conn, self.settings, queue.payload(job),
-                    lambda p: queue.set_progress(conn, job["id"], p))
+            result = handler(conn, self.settings, queue.payload(job),
+                             lambda p: queue.set_progress(conn, job["id"], p),
+                             **({"job_id": job["id"]} if getattr(handler, "wants_job_id", False) else {}))
         except Exception as exc:  # noqa: BLE001 — будь-яка помилка етапу не валить воркер
             status = queue.fail(conn, job["id"], f"{exc}\n{traceback.format_exc(limit=5)}")
             log.error("завдання %s впало (%s): %s", job["id"], status, exc)
         else:
-            queue.finish(conn, job["id"])
-            log.info("завдання %s готове", job["id"])
+            if result == queue.KEEP_STATUS:
+                log.info("завдання %s чекає підтвердження", job["id"])
+            else:
+                queue.finish(conn, job["id"])
+                log.info("завдання %s готове", job["id"])
         return True
 
     def loop(self) -> None:

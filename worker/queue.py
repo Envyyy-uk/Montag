@@ -11,11 +11,14 @@ import sqlite3
 from typing import Any, Iterable
 
 MAX_ATTEMPTS = 3
+# Етап повертає це, якщо сам виставив статус завдання (awaiting_confirm, відкладене опитування).
+KEEP_STATUS = "keep"
 
 
 def enqueue(conn: sqlite3.Connection, kind: str, payload: dict[str, Any] | None = None,
-            project_id: int | None = None, dedupe: bool = True) -> int:
-    """Додає завдання. З `dedupe` не дублює вже заплановане таке саме."""
+            project_id: int | None = None, dedupe: bool = True, delay_seconds: float = 0) -> int:
+    """Додає завдання. З `dedupe` не дублює вже заплановане таке саме.
+    `delay_seconds` — не брати раніше (опитування batch-ів)."""
     body = json.dumps(payload or {}, sort_keys=True, ensure_ascii=False)
     if dedupe:
         row = conn.execute(
@@ -24,8 +27,12 @@ def enqueue(conn: sqlite3.Connection, kind: str, payload: dict[str, Any] | None 
             (kind, body, project_id)).fetchone()
         if row:
             return row["id"]
-    cur = conn.execute("INSERT INTO jobs(kind, payload, project_id) VALUES (?, ?, ?)",
-                       (kind, body, project_id))
+    run_after = None
+    if delay_seconds > 0:
+        run_after = conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)",
+                                 (f"+{delay_seconds:.0f} seconds",)).fetchone()[0]
+    cur = conn.execute("INSERT INTO jobs(kind, payload, project_id, run_after) VALUES (?, ?, ?, ?)",
+                       (kind, body, project_id, run_after))
     return cur.lastrowid
 
 
@@ -38,7 +45,9 @@ def claim(conn: sqlite3.Connection, kinds: Iterable[str]) -> sqlite3.Row | None:
     conn.execute("BEGIN IMMEDIATE")
     try:
         row = conn.execute(
-            f"SELECT * FROM jobs WHERE status = 'queued' AND kind IN ({marks}) ORDER BY id LIMIT 1",
+            f"SELECT * FROM jobs WHERE status = 'queued' AND kind IN ({marks})"
+            " AND (run_after IS NULL OR run_after <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+            " ORDER BY id LIMIT 1",
             kinds).fetchone()
         if row is None:
             conn.execute("COMMIT")
@@ -51,6 +60,25 @@ def claim(conn: sqlite3.Connection, kinds: Iterable[str]) -> sqlite3.Row | None:
         conn.execute("ROLLBACK")
         raise
     return conn.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
+
+
+def await_confirm(conn: sqlite3.Connection, job_id: int, info: dict[str, Any]) -> None:
+    """Завдання чекає підтвердження користувача (наприклад, вартості)."""
+    row = conn.execute("SELECT payload FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    body = {**json.loads(row["payload"]), "confirm": info}
+    conn.execute("UPDATE jobs SET status = 'awaiting_confirm', payload = ? WHERE id = ?",
+                 (json.dumps(body, sort_keys=True, ensure_ascii=False), job_id))
+
+
+def resolve_confirm(conn: sqlite3.Connection, job_id: int, approved: bool) -> bool:
+    row = conn.execute("SELECT payload FROM jobs WHERE id = ? AND status = 'awaiting_confirm'", (job_id,)).fetchone()
+    if row is None:
+        return False
+    body = json.loads(row["payload"])
+    body["approved"] = approved
+    conn.execute("UPDATE jobs SET status = 'queued', attempts = 0, payload = ? WHERE id = ?",
+                 (json.dumps(body, sort_keys=True, ensure_ascii=False), job_id))
+    return True
 
 
 def set_progress(conn: sqlite3.Connection, job_id: int, progress: float) -> None:

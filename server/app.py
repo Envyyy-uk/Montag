@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from core.config import Settings, get_settings
 from core.db import open_db, schema_version
 from core.system_check import run_all
-from server import media, projects, uploads
+from server import budget, media, projects, uploads
 
 
 def create_app(settings: Settings | None = None, start_worker: bool | None = None) -> FastAPI:
@@ -36,6 +36,7 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
     app.include_router(projects.router)
     app.include_router(uploads.router)
     app.include_router(media.router)
+    app.include_router(budget.router)
 
     @app.get("/api/health")
     def health() -> dict:

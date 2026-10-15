@@ -56,7 +56,10 @@ class Settings(BaseSettings):
 
     # Gemini і бюджет
     gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-flash-latest"
+    gemini_thinking_level: str = "low"   # порожньо — як за замовчуванням у моделі
+    gemini_window_seconds: int = Field(180, ge=20)
+    gemini_poll_seconds: int = Field(60, ge=5)
     monthly_budget_usd: float = Field(10.0, ge=0)
     confirm_threshold_usd: float = Field(1.0, ge=0)
     daily_request_limit: int = Field(2000, ge=0)

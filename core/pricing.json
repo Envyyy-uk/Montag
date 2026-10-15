@@ -1,0 +1,23 @@
+{
+  "_опис": "Ціни Gemini API, $ за 1 млн токенів (стандартний режим). Batch — зі знижкою batch_discount. Перевір і онови за https://ai.google.dev/gemini-api/docs/pricing. Модель, якої тут немає, рахується за _default — навмисно з запасом, щоб прогноз не був заниженим.",
+  "batch_discount": 0.5,
+  "models": {
+    "_default":               {"input": 1.50, "audio_input": 1.50, "output": 9.00},
+    "gemini-flash-latest":    {"input": 1.50, "audio_input": 1.50, "output": 9.00},
+    "gemini-3.6-flash":       {"input": 0.75, "audio_input": 0.75, "output": 3.75},
+    "gemini-3.5-flash":       {"input": 1.50, "audio_input": 1.50, "output": 9.00},
+    "gemini-3.5-flash-lite":  {"input": 0.30, "audio_input": 0.30, "output": 2.50},
+    "gemini-3.1-flash-lite":  {"input": 0.25, "audio_input": 0.50, "output": 1.50},
+    "gemini-2.5-flash":       {"input": 0.30, "audio_input": 1.00, "output": 2.50}
+  },
+  "tokens": {
+    "_опис": "Оцінки для прогнозу: токенів на кадр відео (низька роздільність), на секунду аудіо, на картинку-приклад.",
+    "video_frame_low": 70,
+    "audio_per_second": 32,
+    "image": 260,
+    "output_per_segment": 90,
+    "output_base": 60,
+    "thinking_per_request": 400,
+    "safety_margin": 1.25
+  }
+}
