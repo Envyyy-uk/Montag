@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     run_worker_in_server: bool = True
     idle_minutes_before_edit: int = Field(10, ge=1)
 
+    # Аналіз
+    default_filter_preset: str = "lofi"
+    whisper_enabled: bool = True
+    whisper_model: str = "small"
+    whisper_language: str = ""  # порожньо — автовизначення
+
     # Google Drive
     google_client_secret_file: str = ""
     google_token_file: str = ""

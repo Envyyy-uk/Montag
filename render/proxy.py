@@ -63,8 +63,9 @@ def build_filter(info: MediaInfo, spec: ProxySpec, filters: frozenset[str]) -> t
             warnings.append("FFmpeg без zscale/libplacebo: HDR→SDR без тонального мапінгу, кольори будуть бляклі")
     w, h = target_size(info.display_width, info.display_height, spec.short_side)
     chain.append(f"scale={w}:{h}:flags=lanczos")
-    if spec.max_fps and info.fps > spec.max_fps:
-        chain.append(f"fps={spec.max_fps:g}")
+    if spec.max_fps:
+        # Постійна частота: аналіз рахує час кадру як номер/fps.
+        chain.append(f"fps={min(spec.max_fps, info.fps) if info.fps > 0 else spec.max_fps:g}")
     chain.append("format=yuv420p")
     return ",".join(chain), warnings
 

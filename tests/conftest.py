@@ -10,6 +10,7 @@ def settings(tmp_path):
         library_dir=tmp_path / "library",
         inbox_dir=tmp_path / "inbox",
         db_path=tmp_path / "library" / "test.sqlite3",
+        whisper_enabled=False,
     )
 
 

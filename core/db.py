@@ -94,6 +94,39 @@ MIGRATIONS: list[str] = [
         updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
     """,
+    # 3 — аналіз: сегменти, звукові події (Спринт 3)
+    """
+    ALTER TABLE media ADD COLUMN analysis_json TEXT;
+    ALTER TABLE media ADD COLUMN analyzed_at TEXT;
+
+    CREATE TABLE segments (
+        id            INTEGER PRIMARY KEY,
+        media_id      INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+        idx           INTEGER NOT NULL,
+        scene_idx     INTEGER NOT NULL,
+        start         REAL NOT NULL,
+        end           REAL NOT NULL,
+        metrics       TEXT NOT NULL,
+        local_score   REAL NOT NULL,
+        reject_reason TEXT,
+        audio_db      REAL,
+        burst_db      REAL NOT NULL DEFAULT 0,
+        UNIQUE (media_id, idx)
+    );
+    CREATE INDEX segments_media ON segments(media_id, start);
+
+    CREATE TABLE audio_events (
+        id             INTEGER PRIMARY KEY,
+        media_id       INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+        kind           TEXT NOT NULL,
+        start          REAL NOT NULL,
+        end            REAL NOT NULL,
+        peak_excess_db REAL NOT NULL,
+        peak_db        REAL NOT NULL,
+        flatness       REAL NOT NULL
+    );
+    CREATE INDEX audio_events_media ON audio_events(media_id, start);
+    """,
 ]
 
 

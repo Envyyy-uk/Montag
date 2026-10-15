@@ -20,7 +20,7 @@ Handler = Callable[..., None]
 
 def default_handlers() -> dict[str, Handler]:
     # Етапи наступних спринтів (edit_project тощо) додаються сюди.
-    return {"prepare_media": stages.prepare_media}
+    return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media}
 
 
 class Worker:
@@ -46,7 +46,7 @@ class Worker:
         handler = self.handlers[job["kind"]]
         log.info("завдання %s (%s) почалось", job["id"], job["kind"])
         try:
-            handler(conn, self.settings.library_path, queue.payload(job),
+            handler(conn, self.settings, queue.payload(job),
                     lambda p: queue.set_progress(conn, job["id"], p))
         except Exception as exc:  # noqa: BLE001 — будь-яка помилка етапу не валить воркер
             status = queue.fail(conn, job["id"], f"{exc}\n{traceback.format_exc(limit=5)}")

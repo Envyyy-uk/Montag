@@ -1,0 +1,19 @@
+{
+  "_опис": "Пороги локального фільтра браку. Метрики рахуються на 480p-проксі. Стиль може послатися на пресет за назвою (\"filter\": \"lofi\") або задати свої значення поверх нього (\"filter\": {\"preset\": \"lofi\", \"max_shake\": 4}).",
+  "standard": {
+    "min_duration": 0.4,
+    "min_sharpness": 30,
+    "max_shake": 1.5,
+    "dark_p95": 60,
+    "max_brightness": 235,
+    "min_contrast": 12
+  },
+  "lofi": {
+    "min_duration": 0.4,
+    "min_sharpness": 12,
+    "max_shake": 3.0,
+    "dark_p95": 35,
+    "max_brightness": 245,
+    "min_contrast": 7
+  }
+}
