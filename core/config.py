@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     daily_request_limit: int = Field(2000, ge=0)
 
     # Черга
+    run_worker_in_server: bool = True
     idle_minutes_before_edit: int = Field(10, ge=1)
 
     # Google Drive

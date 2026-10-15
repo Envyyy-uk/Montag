@@ -59,4 +59,5 @@ def test_cli_init(tmp_path, monkeypatch, capsys):
         db_path=tmp_path / "lib" / "db.sqlite3"))
     assert cli.main(["init"]) == 0
     assert (tmp_path / "lib" / "db.sqlite3").exists()
-    assert "схема v1" in capsys.readouterr().out
+    from core.db import MIGRATIONS
+    assert f"схема v{len(MIGRATIONS)}" in capsys.readouterr().out

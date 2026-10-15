@@ -72,13 +72,35 @@ MIGRATIONS: list[str] = [
         value TEXT NOT NULL
     );
     """,
+    # 2 — введення відео (Спринт 2)
+    """
+    ALTER TABLE projects ADD COLUMN last_media_at TEXT;
+    ALTER TABLE projects ADD COLUMN edit_requested_at TEXT;
+
+    ALTER TABLE media ADD COLUMN filename TEXT;
+    ALTER TABLE media ADD COLUMN duration REAL;
+    ALTER TABLE media ADD COLUMN shot_at TEXT;
+    ALTER TABLE media ADD COLUMN error TEXT;
+
+    CREATE TABLE uploads (
+        id          TEXT PRIMARY KEY,
+        project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        filename    TEXT NOT NULL,
+        length      INTEGER NOT NULL,
+        offset      INTEGER NOT NULL DEFAULT 0,
+        part_path   TEXT NOT NULL,
+        media_id    INTEGER REFERENCES media(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    """,
 ]
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
     if str(path) != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30, isolation_level=None)
+    conn = sqlite3.connect(path, timeout=30, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

@@ -1,0 +1,84 @@
+"""Фоновий воркер: бере завдання з черги по одному, сканує inbox, ставить проєкти на монтаж."""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+import traceback
+from typing import Callable
+
+from core.config import Settings
+from core.db import open_db
+from sources.inbox import InboxScanner
+from worker import queue, stages
+
+log = logging.getLogger(__name__)
+
+Handler = Callable[..., None]
+
+
+def default_handlers() -> dict[str, Handler]:
+    # Етапи наступних спринтів (edit_project тощо) додаються сюди.
+    return {"prepare_media": stages.prepare_media}
+
+
+class Worker:
+    def __init__(self, settings: Settings, handlers: dict[str, Handler] | None = None,
+                 poll_seconds: float = 2.0):
+        self.settings = settings
+        self.handlers = handlers if handlers is not None else default_handlers()
+        self.poll_seconds = poll_seconds
+        self.inbox = InboxScanner(settings.inbox_path, settings.library_path)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_housekeeping = 0.0
+
+    def housekeeping(self, conn) -> None:
+        self.inbox.scan(conn)
+        stages.auto_queue_idle(conn, self.settings.idle_minutes_before_edit)
+
+    def run_one(self, conn) -> bool:
+        """Виконує одне завдання. False — черга порожня."""
+        job = queue.claim(conn, self.handlers)
+        if job is None:
+            return False
+        handler = self.handlers[job["kind"]]
+        log.info("завдання %s (%s) почалось", job["id"], job["kind"])
+        try:
+            handler(conn, self.settings.library_path, queue.payload(job),
+                    lambda p: queue.set_progress(conn, job["id"], p))
+        except Exception as exc:  # noqa: BLE001 — будь-яка помилка етапу не валить воркер
+            status = queue.fail(conn, job["id"], f"{exc}\n{traceback.format_exc(limit=5)}")
+            log.error("завдання %s впало (%s): %s", job["id"], status, exc)
+        else:
+            queue.finish(conn, job["id"])
+            log.info("завдання %s готове", job["id"])
+        return True
+
+    def loop(self) -> None:
+        conn = open_db(self.settings.database_path)
+        recovered = queue.recover(conn)
+        if recovered:
+            log.info("відновлено %s перерваних завдань", recovered)
+        try:
+            while not self._stop.is_set():
+                if time.monotonic() - self._last_housekeeping > 5:
+                    self._last_housekeeping = time.monotonic()
+                    try:
+                        self.housekeeping(conn)
+                    except Exception:  # noqa: BLE001
+                        log.exception("housekeeping")
+                if not self.run_one(conn):
+                    self._stop.wait(self.poll_seconds)
+        finally:
+            conn.close()
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self.loop, name="worker", daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 5) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout)
