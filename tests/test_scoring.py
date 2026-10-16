@@ -122,6 +122,10 @@ def drain(settings, conn, limit=50):
     raise AssertionError("черга не спорожніла")
 
 
+def edit_started(conn):
+    return any(k == "edit_project" for k, _ in jobs(conn))
+
+
 def jobs(conn):
     return [(j["kind"], j["status"]) for j in conn.execute("SELECT * FROM jobs WHERE kind NOT IN"
                                                             " ('prepare_media', 'analyze_media') ORDER BY id")]
@@ -131,7 +135,7 @@ def test_scoring_end_to_end_and_cache(project):
     settings, conn, p, fake = project
     request_edit(conn, p["id"])
     drain(settings, conn)
-    assert ("edit_project", "queued") in jobs(conn)
+    assert edit_started(conn)
     assert len(fake.batches) == 1 and fake.polls == 1
     req = fake.requests[0]
     assert req["config"]["media_resolution"] == "MEDIA_RESOLUTION_LOW"
@@ -170,7 +174,7 @@ def test_invalid_answer_retried_once_then_local(project):
     assert statuses and set(statuses) == {"invalid"}
     assert conn.execute("SELECT COUNT(*) FROM scores WHERE source = 'gemini'").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM scores WHERE source = 'local'").fetchone()[0] > 0
-    assert ("edit_project", "queued") in jobs(conn)
+    assert edit_started(conn)
     # навіть новий «Монтувати» не шле ті самі шматки втретє
     request_edit(conn, p["id"])
     drain(settings, conn)
@@ -199,7 +203,7 @@ def test_polls_until_batch_done(project):
     fake.polls_until_done = 3
     request_edit(conn, p["id"])
     drain(settings, conn)
-    assert fake.polls == 3 and ("edit_project", "queued") in jobs(conn)
+    assert fake.polls == 3 and edit_started(conn)
 
 
 def test_confirmation_flow(project):
@@ -218,7 +222,7 @@ def test_confirmation_flow(project):
         assert client.post(f"/api/jobs/{pending[0]['job_id']}/confirm", json={"approved": True}).status_code == 200
         assert client.post(f"/api/jobs/{pending[0]['job_id']}/confirm", json={"approved": True}).status_code == 404
     drain(settings, conn)
-    assert len(fake.batches) == 1 and ("edit_project", "queued") in jobs(conn)
+    assert len(fake.batches) == 1 and edit_started(conn)
 
 
 def test_confirmation_rejected_goes_local(project):
@@ -229,7 +233,7 @@ def test_confirmation_rejected_goes_local(project):
     job = conn.execute("SELECT id FROM jobs WHERE status = 'awaiting_confirm'").fetchone()["id"]
     queue.resolve_confirm(conn, job, False)
     drain(settings, conn)
-    assert not fake.batches and ("edit_project", "queued") in jobs(conn)
+    assert not fake.batches and edit_started(conn)
     assert conn.execute("SELECT COUNT(*) FROM scores WHERE source = 'local'").fetchone()[0] > 0
 
 
@@ -239,7 +243,7 @@ def test_budget_exhausted_continues_locally(project):
     request_edit(conn, p["id"])
     drain(settings, conn)
     assert not fake.batches
-    assert ("edit_project", "queued") in jobs(conn)
+    assert edit_started(conn)
     assert conn.execute("SELECT COUNT(*) FROM scores WHERE source = 'local'").fetchone()[0] > 0
 
 
@@ -248,7 +252,7 @@ def test_daily_limit(project):
     settings = settings.model_copy(update={"daily_request_limit": 0})
     request_edit(conn, p["id"])
     drain(settings, conn)
-    assert not fake.batches and ("edit_project", "queued") in jobs(conn)
+    assert not fake.batches and edit_started(conn)
 
 
 def test_no_api_key_local_only(project):
@@ -256,7 +260,7 @@ def test_no_api_key_local_only(project):
     settings = settings.model_copy(update={"gemini_api_key": SecretStr("")})
     request_edit(conn, p["id"])
     drain(settings, conn)
-    assert not fake.batches and ("edit_project", "queued") in jobs(conn)
+    assert not fake.batches and edit_started(conn)
 
 
 def test_reservation_blocks_parallel_overspend(project, tmp_path):

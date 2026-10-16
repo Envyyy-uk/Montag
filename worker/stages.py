@@ -58,7 +58,28 @@ def prepare_media(conn: sqlite3.Connection, settings: Settings, payload: dict, p
                      (str(edit_dst.relative_to(library)), str(gem_dst.relative_to(library)),
                       "; ".join(dict.fromkeys(warnings)) or None, media["id"]))
         queue.enqueue(conn, "analyze_media", {"media_id": media["id"]}, project_id=media["project_id"])
+    elif media["kind"] == "track" and info.has_audio:
+        queue.enqueue(conn, "analyze_track", {"media_id": media["id"]}, project_id=media["project_id"])
     conn.execute("UPDATE media SET status = 'ready' WHERE id = ?", (media["id"],))
+
+
+def analyze_track(conn: sqlite3.Connection, settings: Settings, payload: dict, progress: Progress) -> None:
+    """Музичний трек: темп, біти, сильні долі, енергія, дропи і приспіви."""
+    from analysis import track as track_mod
+
+    media = _media(conn, payload["media_id"])
+    if media is None or media["kind"] != "track":
+        return
+    conn.execute("UPDATE media SET status = 'analyzing' WHERE id = ?", (media["id"],))
+    path = analysis_dir(settings, media["slug"]) / f"{media['id']}_track.json"
+    if not path.exists():
+        ta = track_mod.analyze_file(settings.library_path / media["original_path"])
+        ta.save(path)
+    ta = track_mod.TrackAnalysis.load(path)
+    summary = {"tempo": ta.tempo, "beats": len(ta.beats), "bars": len(ta.bar_level),
+               "drops": len(ta.drops), "choruses": len(ta.choruses)}
+    conn.execute(f"UPDATE media SET status = 'analyzed', analysis_json = ?, analyzed_at = {NOW_SQL} WHERE id = ?",
+                 (json.dumps(summary), media["id"]))
 
 
 def analysis_dir(settings: Settings, slug: str) -> Path:
@@ -184,7 +205,7 @@ def auto_queue_idle(conn: sqlite3.Connection, idle_minutes: int, now: datetime |
             continue
         has_video = conn.execute("SELECT 1 FROM media WHERE project_id = ? AND kind = 'video'",
                                  (row["id"],)).fetchone()
-        busy = conn.execute("SELECT 1 FROM jobs WHERE project_id = ? AND kind IN ('prepare_media', 'analyze_media')"
+        busy = conn.execute("SELECT 1 FROM jobs WHERE project_id = ? AND kind IN ('prepare_media', 'analyze_media', 'analyze_track')"
                             " AND status IN ('queued', 'running')", (row["id"],)).fetchone()
         if has_video and not busy:
             request_edit(conn, row["id"])

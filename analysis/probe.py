@@ -32,6 +32,7 @@ class MediaInfo:
     hdr: bool = False
     rotation: int = 0
     shot_at: str | None = None  # ISO 8601 UTC
+    device: str = ""            # камера: «Apple iPhone 15 Pro», «GoPro», …
     audio_codec: str = ""
     sample_rate: int = 0
 
@@ -118,6 +119,22 @@ def _shot_at(data: dict) -> str | None:
     return None
 
 
+def _device(data: dict, video: dict | None) -> str:
+    tags = {k.lower(): str(v) for k, v in ((data.get("format") or {}).get("tags") or {}).items()}
+    if video:
+        tags.update({k.lower(): str(v) for k, v in (video.get("tags") or {}).items() if k.lower() not in tags})
+    make = tags.get("com.apple.quicktime.make") or tags.get("make") or ""
+    model = tags.get("com.apple.quicktime.model") or tags.get("model") or ""
+    if make or model:
+        return f"{make} {model}".strip()
+    for key in ("encoder", "handler_name", "firmware"):
+        val = tags.get(key, "")
+        for brand in ("GoPro", "DJI", "Insta360", "Sony", "Ray-Ban", "Meta", "Canon", "Panasonic"):
+            if brand.lower() in val.lower():
+                return brand
+    return ""
+
+
 def parse(data: dict) -> MediaInfo:
     streams = data.get("streams") or []
     video = next((s for s in streams if s.get("codec_type") == "video"
@@ -129,7 +146,7 @@ def parse(data: dict) -> MediaInfo:
         raise ProbeError("У файлі немає ні відео, ні звуку")
 
     info = MediaInfo(duration=duration, has_video=video is not None, has_audio=audio is not None,
-                     shot_at=_shot_at(data))
+                     shot_at=_shot_at(data), device=_device(data, video))
     if video:
         info.width = int(video.get("width") or 0)
         info.height = int(video.get("height") or 0)

@@ -184,6 +184,24 @@ MIGRATIONS: list[str] = [
         UNIQUE (media_id, start, end, style_key)
     );
     """,
+    # 5 — монтаж кліпу (Спринт 5)
+    """
+    ALTER TABLE projects ADD COLUMN settings TEXT NOT NULL DEFAULT '{}';
+
+    CREATE TABLE edits (
+        id            INTEGER PRIMARY KEY,
+        project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        kind          TEXT NOT NULL CHECK (kind IN ('clip', 'vertical')),
+        version       INTEGER NOT NULL,
+        params        TEXT NOT NULL DEFAULT '{}',
+        timeline_path TEXT NOT NULL,
+        audio_path    TEXT,
+        preview_path  TEXT,
+        summary       TEXT,
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        UNIQUE (project_id, kind, version)
+    );
+    """,
 ]
 
 

@@ -51,3 +51,45 @@ def analysis_video(path: Path) -> Path:
     ff("-filter_complex", graph, "-map", "[v]", "-map", "[aout]", "-c:v", "libx264", "-preset", "ultrafast",
        "-crf", "18", "-c:a", "aac", "-t", "24", str(path))
     return path
+
+
+def song(path: Path, bpm: float = 120.0, sections=None, sr: int = 44100) -> Path:
+    """Синтетична пісня 4/4 з відомими секціями: (тривалість у тактах, рівень 'low'|'mid'|'high').
+    Сильна доля — бас + гучніший удар; на high — шум «гітар» і удари на кожну долю."""
+    import numpy as np
+    import soundfile as sf
+
+    sections = sections or [(8, "low"), (16, "high"), (8, "mid"), (16, "high"), (4, "low")]
+    beat = 60.0 / bpm
+    bars = sum(n for n, _ in sections)
+    total = int(bars * 4 * beat * sr) + sr
+    y = np.zeros(total, dtype=np.float64)
+    rng = np.random.default_rng(1)
+    t_kick = np.arange(int(0.12 * sr)) / sr
+    kick = np.sin(2 * np.pi * (50 + 80 * np.exp(-t_kick * 30)) * t_kick) * np.exp(-t_kick * 18)
+    hat = rng.standard_normal(int(0.03 * sr)) * np.exp(-np.arange(int(0.03 * sr)) / sr * 120)
+    bar_i = 0
+    for n, level in sections:
+        amp = {"low": 0.08, "mid": 0.3, "high": 0.8}[level]
+        for b in range(n):
+            for k in range(4):
+                pos = int(((bar_i + b) * 4 + k) * beat * sr)
+                if level == "low":
+                    y[pos:pos + len(hat)] += hat * amp * (1.6 if k == 0 else 0.6)
+                    if k == 0:
+                        y[pos:pos + len(kick)] += kick * amp
+                else:
+                    y[pos:pos + len(kick)] += kick * amp * (1.5 if k == 0 else 0.8)
+                    y[pos:pos + len(hat)] += hat * amp * 0.5
+            if level == "high":
+                a = int((bar_i + b) * 4 * beat * sr)
+                seg = int(4 * beat * sr)
+                y[a:a + seg] += rng.standard_normal(seg) * 0.12
+        bar_i += n
+    y = np.clip(y, -1, 1).astype(np.float32)
+    wav = path.with_suffix(".wav")
+    sf.write(wav, np.stack([y, y], axis=1), sr)
+    if path.suffix.lower() != ".wav":
+        ff("-i", str(wav), "-c:a", "libmp3lame", "-b:a", "192k", str(path))
+        wav.unlink()
+    return path

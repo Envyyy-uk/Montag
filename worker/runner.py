@@ -19,11 +19,13 @@ Handler = Callable[..., str | None]
 
 
 def default_handlers() -> dict[str, Handler]:
-    # Етапи наступних спринтів (edit_project тощо) додаються сюди.
     from analysis import scoring
+    from edit import build
 
     return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media,
-            "score_project": scoring.score_project, "poll_batch": scoring.poll_batch}
+            "analyze_track": stages.analyze_track,
+            "score_project": scoring.score_project, "poll_batch": scoring.poll_batch,
+            "edit_project": build.edit_project}
 
 
 class Worker:

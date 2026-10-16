@@ -377,7 +377,7 @@ def _submit(conn, settings, backend, project, style, taste, plan: list[Planned])
 
 
 def _pending_analysis(conn, project_id: int) -> bool:
-    return conn.execute("SELECT 1 FROM jobs WHERE project_id = ? AND kind IN ('prepare_media', 'analyze_media')"
+    return conn.execute("SELECT 1 FROM jobs WHERE project_id = ? AND kind IN ('prepare_media', 'analyze_media', 'analyze_track')"
                         " AND status IN ('queued', 'running')", (project_id,)).fetchone() is not None
 
 
