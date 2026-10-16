@@ -36,17 +36,26 @@ def nvenc_available() -> bool:
 
 
 def h264_args(quality: str, nvenc: bool | None = None) -> list[str]:
-    """Параметри H.264. quality: 'master' (1080p монтаж/експорт) або 'low' (480p для Gemini)."""
+    """Параметри H.264. quality: 'master' (проксі), 'final' (готовий mp4), 'preview' (720p для телефона),
+    'low' (480p для Gemini)."""
     if nvenc is None:
         nvenc = nvenc_available()
     if nvenc:
         common = ["-c:v", "h264_nvenc", "-preset", "p5", "-profile:v", "high"]
         if quality == "low":
             return common + ["-rc", "vbr", "-b:v", "500k", "-maxrate", "700k", "-bufsize", "1400k"]
+        if quality == "preview":
+            return common + ["-rc", "vbr", "-cq", "27", "-b:v", "0", "-maxrate", "3M", "-bufsize", "6M"]
+        if quality == "final":
+            return common + ["-rc", "vbr", "-cq", "19", "-b:v", "0"]
         return common + ["-rc", "vbr", "-cq", "21", "-b:v", "0"]
     common = ["-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high"]
     if quality == "low":
         return common + ["-crf", "30", "-maxrate", "700k", "-bufsize", "1400k"]
+    if quality == "preview":
+        return common + ["-crf", "26", "-maxrate", "3M", "-bufsize", "6M"]
+    if quality == "final":
+        return common + ["-crf", "18"]
     return common + ["-crf", "20"]
 
 

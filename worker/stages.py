@@ -211,3 +211,31 @@ def auto_queue_idle(conn: sqlite3.Connection, idle_minutes: int, now: datetime |
             request_edit(conn, row["id"])
             queued.append(row["id"])
     return queued
+
+
+def style_test(conn: sqlite3.Connection, settings: Settings, payload: dict, progress: Progress) -> None:
+    """Три тестові 5-секундні рендери стилю (рівні 1–3) на шматку відео користувача або синтетичній сцені."""
+    from render.clip_render import Source, render_style_test
+    from render.looks import get_style
+    from render.samples import stage_clip
+
+    style = get_style(payload["style_id"])
+    src, start = None, float(payload.get("start") or 0)
+    if payload.get("media_id"):
+        m = conn.execute("SELECT * FROM media WHERE id = ? AND kind = 'video'", (payload["media_id"],)).fetchone()
+        if m and m["proxy_path"]:
+            info = json.loads(m["probe_json"] or "{}")
+            src = Source(settings.library_path / m["proxy_path"], info.get("display_width", 1920),
+                         info.get("display_height", 1080), m["shot_at"])
+            start = min(start, max(0.0, (m["duration"] or 5) - 5))
+    if src is None:
+        sample = settings.library_path / "style_tests" / "_stage.mp4"
+        if not sample.exists():
+            sample.parent.mkdir(parents=True, exist_ok=True)
+            stage_clip(sample, 6.0)
+        src, start = Source(sample, 1920, 1080, "2025-06-14T18:03:05Z"), 0.0
+    for i, level in enumerate((1, 2, 3)):
+        out = settings.library_path / "style_tests" / style.id / f"level_{level}.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        render_style_test(style, level, src, start, out, size=settings.render_size)
+        progress((i + 1) / 3)

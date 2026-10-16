@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     run_worker_in_server: bool = True
     idle_minutes_before_edit: int = Field(10, ge=1)
 
+    # Стиль, якщо проєкту його ще не призначено (автовибір — Спринт 9)
+    default_style: str = "minidv-concert"
+    render_height: int = Field(1080, ge=240, le=2160)  # висота готового кліпу (ширина 16:9)
+
+    @property
+    def render_size(self) -> tuple[int, int]:
+        h = self.render_height - self.render_height % 2
+        w = round(h * 16 / 9)
+        return w - w % 2, h
+
     # Аналіз
     default_filter_preset: str = "lofi"
     whisper_enabled: bool = True

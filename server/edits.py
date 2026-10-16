@@ -30,6 +30,8 @@ class ClipParams(BaseModel):
     beats_per_level: dict[str, int] | None = None
     tag_weights: dict[str, float] | None = None
     excluded: list[list[float]] | None = None
+    transitions: bool | None = None
+    disabled_transitions: list[str] | None = None
     reset_bounds: bool = False
 
 
@@ -55,6 +57,17 @@ def timeline(edit_id: int, conn: sqlite3.Connection = Depends(db),
     if row is None:
         raise HTTPException(404, "Монтаж не знайдено")
     return json.loads((settings.library_path / row["timeline_path"]).read_text(encoding="utf-8"))
+
+
+@router.get("/edits/{edit_id}/video")
+def video(edit_id: int, conn: sqlite3.Connection = Depends(db),
+          settings: Settings = Depends(settings_dep)) -> FileResponse:
+    """Готовий mp4 1080p."""
+    row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if row is None or not row["export_path"] or not (settings.library_path / row["export_path"]).exists():
+        raise HTTPException(404, "Готового відео немає")
+    path = settings.library_path / row["export_path"]
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
 
 
 @router.get("/edits/{edit_id}/preview")

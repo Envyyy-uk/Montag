@@ -1,0 +1,86 @@
+{
+  "id": "minidv-concert",
+  "name": "MiniDV-концерт",
+  "description": "Камкордер середини 2000-х: м'яка картинка 480 рядків з електронною різкістю, кольоровий шум, холодно-ціанові тіні, ледь помітні лінії розгортки, жовта дата й час.",
+  "event_types": [
+    "концерт",
+    "фестиваль",
+    "вечірка"
+  ],
+  "filter": "lofi",
+  "default_level": 2,
+  "look": {
+    "soften_lines": 480,
+    "sharpen": 0.6,
+    "contrast": 1.05,
+    "saturation": 0.85,
+    "gamma": 1.0,
+    "lift": 0.03,
+    "shadows": [
+      -0.06,
+      0.02,
+      0.08
+    ],
+    "highlights": [
+      0.03,
+      0.01,
+      -0.02
+    ],
+    "chroma_blur": 1,
+    "grain": 10,
+    "chroma_noise": 8,
+    "vignette": 0.45,
+    "scanlines": 0.08,
+    "stamp": {
+      "format": "minidv",
+      "color": "#ffd23a",
+      "size": 0.045
+    }
+  },
+  "levels": {
+    "1": {
+      "soften_lines": 576,
+      "sharpen": 0.4,
+      "saturation": 0.92,
+      "shadows": [
+        -0.03,
+        0.01,
+        0.04
+      ],
+      "chroma_blur": 0,
+      "grain": 6,
+      "chroma_noise": 4,
+      "vignette": 0.35,
+      "scanlines": 0.05
+    },
+    "2": {},
+    "3": {
+      "soften_lines": 360,
+      "sharpen": 0.9,
+      "saturation": 0.78,
+      "lift": 0.05,
+      "shadows": [
+        -0.1,
+        0.03,
+        0.12
+      ],
+      "chroma_blur": 2,
+      "chroma_shift": 1,
+      "grain": 16,
+      "chroma_noise": 14,
+      "vignette": 0.6,
+      "scanlines": 0.14
+    }
+  },
+  "transitions": {
+    "allowed": [
+      "flash",
+      "zoom",
+      "glitch",
+      "freeze",
+      "rewind",
+      "burn"
+    ],
+    "max_share": 0.15
+  }
+}

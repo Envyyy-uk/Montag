@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
+
 from analysis import quality, scoring, thresholds
 from analysis.track import TrackAnalysis
 from core.config import Settings
@@ -39,6 +41,8 @@ DEFAULT_PARAMS = {
     "beats_per_level": {},   # {"low": 4, "mid": 2, "high": 1}
     "tag_weights": {},       # {"натовп": 0.3}
     "excluded": [],          # [[media_id, start], ...]
+    "transitions": True,     # ефектні переходи на акцентах (перемикач у превʼю)
+    "disabled_transitions": [],
 }
 
 
@@ -213,9 +217,10 @@ def build_timeline(conn: sqlite3.Connection, settings: Settings, project: sqlite
         markers.append(Marker(q(p.start), "insert", "Жива вставка"))
     markers.sort(key=lambda m: m.t)
 
+    beat = float(np.median(np.diff(track.beats))) if len(track.beats) > 1 else 0.5
     tl = Timeline(fps=fps, duration=duration, track_media_id=track_row["id"], track_in=round(win.start, 4),
                   track_out=round(win.start + duration, 4), clips=clips, inserts=tl_inserts, markers=markers,
-                  params={k: params[k] for k in DEFAULT_PARAMS})
+                  params={k: params[k] for k in DEFAULT_PARAMS}, beat=round(beat, 5))
     problems = tl.check()
     if problems:
         raise EditError("; ".join(problems))
@@ -240,9 +245,25 @@ def edit_dir(settings: Settings, slug: str, version: int) -> Path:
     return settings.library_path / slug / "edits" / f"clip_v{version:03d}"
 
 
+def render_sources(conn: sqlite3.Connection, settings: Settings, media_ids) -> dict:
+    """Джерела рендеру: 1080p-проксі (вже SDR) з розмірами і часом зйомки."""
+    from render.clip_render import Source
+
+    out = {}
+    for mid in set(media_ids):
+        m = conn.execute("SELECT * FROM media WHERE id = ?", (mid,)).fetchone()
+        info = json.loads(m["probe_json"] or "{}")
+        path = settings.library_path / (m["proxy_path"] or m["original_path"])
+        w, h = info.get("display_width") or info.get("width") or 1920, info.get("display_height") or info.get("height") or 1080
+        out[mid] = Source(path, int(w), int(h), m["shot_at"])
+    return out
+
+
 def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
                  progress: Callable[[float], None]) -> None:
-    from render.draft import render_draft
+    from edit import transitions_plan
+    from render import style_store
+    from render.clip_render import render_timeline
 
     project = conn.execute("SELECT * FROM projects WHERE id = ?", (payload["project_id"],)).fetchone()
     if project is None:
@@ -257,34 +278,45 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
     analysis = settings.library_path / project["slug"] / "analysis" / f"{track_row['id']}_track.json"
     track = TrackAnalysis.load(analysis)
     params = {**project_params(project), **(payload.get("params") or {})}
+    conn.execute("UPDATE projects SET status = 'rendering' WHERE id = ?", (project["id"],))
     build = build_timeline(conn, settings, project, track_row, track, params)
-    progress(0.1)
-
+    tl = build.timeline
+    style, level = style_store.resolve(conn, settings, project["style_id"])
     version = (conn.execute("SELECT MAX(version) FROM edits WHERE project_id = ? AND kind = 'clip'",
                             (project["id"],)).fetchone()[0] or 0) + 1
-    out = edit_dir(settings, project["slug"], version)
-    tl_path, wav, draft = out / "timeline.json", out / "mix.wav", out / "draft.mp4"
-    build.timeline.save(tl_path)
-    render_audio(settings, conn, build.timeline, wav)
-    progress(0.2)
-    sources = {}
-    for c in build.timeline.clips:
-        m = conn.execute("SELECT * FROM media WHERE id = ?", (c.media_id,)).fetchone()
-        sources[c.media_id] = settings.library_path / (m["proxy_path"] or m["original_path"])
-    render_draft(build.timeline, sources, wav, draft, lambda p: progress(0.2 + 0.8 * p))
+    st = style.transitions
+    tl.transitions = transitions_plan.plan(tl, st.get("allowed", []), float(st.get("max_share", 0.15)),
+                                           set(params.get("disabled_transitions") or []),
+                                           seed=project["id"] * 1000 + version)
+    tl.params["style"] = {"id": style.id, "level": level}
+    progress(0.05)
 
-    tl = build.timeline
+    lib = settings.library_path
+    out = edit_dir(settings, project["slug"], version)
+    tl_path, wav = out / "timeline.json", out / "mix.wav"
+    tl.save(tl_path)
+    render_audio(settings, conn, tl, wav)
+    progress(0.1)
+    exports = lib / project["slug"] / "exports"
+    final = exports / f"{project['slug']}_clip_v{version:03d}.mp4"
+    preview = exports / f"{project['slug']}_clip_v{version:03d}_720p.mp4"
+    render_timeline(tl, style, level, render_sources(conn, settings, [c.media_id for c in tl.clips]), wav,
+                    final, preview, transitions=bool(params.get("transitions", True)), size=settings.render_size,
+                    on_progress=lambda p: progress(0.1 + 0.9 * p))
+
     summary = {
         "duration": tl.duration, "fps": tl.fps, "cuts": len(tl.clips) - 1,
         "inserts": len(tl.inserts), "track_in": tl.track_in, "track_out": tl.track_out,
+        "transitions": [t["kind"] for t in tl.transitions] if params.get("transitions", True) else [],
+        "style": style.name, "level": level,
         "gemini_share": round(sum(c.source == "gemini" for c in tl.clips) / max(1, len(tl.clips)), 2),
         "created": datetime.now().isoformat(timespec="seconds"),
     }
-    lib = settings.library_path
     conn.execute(
-        "INSERT INTO edits(project_id, kind, version, params, timeline_path, audio_path, preview_path, summary)"
-        " VALUES (?, 'clip', ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO edits(project_id, kind, version, params, timeline_path, audio_path, preview_path, export_path,"
+        " style_id, style_level, summary) VALUES (?, 'clip', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (project["id"], version, json.dumps(tl.params, ensure_ascii=False), str(tl_path.relative_to(lib)),
-         str(wav.relative_to(lib)), str(draft.relative_to(lib)), json.dumps(summary, ensure_ascii=False)))
+         str(wav.relative_to(lib)), str(preview.relative_to(lib)), str(final.relative_to(lib)), style.id, level,
+         json.dumps(summary, ensure_ascii=False)))
     conn.execute("UPDATE projects SET status = 'edited', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
                  " WHERE id = ?", (project["id"],))

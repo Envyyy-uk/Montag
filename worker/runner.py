@@ -25,7 +25,7 @@ def default_handlers() -> dict[str, Handler]:
     return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media,
             "analyze_track": stages.analyze_track,
             "score_project": scoring.score_project, "poll_batch": scoring.poll_batch,
-            "edit_project": build.edit_project}
+            "edit_project": build.edit_project, "style_test": stages.style_test}
 
 
 class Worker:

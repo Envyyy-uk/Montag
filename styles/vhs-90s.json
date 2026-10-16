@@ -1,0 +1,66 @@
+{
+  "id": "vhs-90s",
+  "name": "VHS 90-х",
+  "description": "Касета VHS: 240 рядків, кольори розтікаються і зсуваються, сильний кольоровий шум, лінії розгортки, біла дата.",
+  "event_types": [
+    "вечірка",
+    "концерт",
+    "спорт"
+  ],
+  "filter": "lofi",
+  "default_level": 2,
+  "look": {
+    "soften_lines": 288,
+    "sharpen": 0.8,
+    "contrast": 0.95,
+    "saturation": 1.15,
+    "lift": 0.05,
+    "shadows": [
+      0.02,
+      0.0,
+      0.04
+    ],
+    "chroma_blur": 4,
+    "chroma_shift": 3,
+    "grain": 12,
+    "chroma_noise": 18,
+    "vignette": 0.3,
+    "scanlines": 0.12,
+    "stamp": {
+      "format": "vhs",
+      "color": "#f2f2f2",
+      "size": 0.05
+    }
+  },
+  "levels": {
+    "1": {
+      "soften_lines": 360,
+      "chroma_blur": 2,
+      "chroma_shift": 2,
+      "grain": 8,
+      "chroma_noise": 10,
+      "scanlines": 0.08
+    },
+    "2": {},
+    "3": {
+      "soften_lines": 240,
+      "chroma_blur": 6,
+      "chroma_shift": 5,
+      "grain": 16,
+      "chroma_noise": 28,
+      "saturation": 1.25,
+      "scanlines": 0.18,
+      "lift": 0.07
+    }
+  },
+  "transitions": {
+    "allowed": [
+      "glitch",
+      "rewind",
+      "freeze",
+      "flash",
+      "whip"
+    ],
+    "max_share": 0.15
+  }
+}

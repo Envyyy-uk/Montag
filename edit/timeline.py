@@ -61,6 +61,12 @@ class Timeline:
     inserts: list[Insert] = field(default_factory=list)
     markers: list[Marker] = field(default_factory=list)
     params: dict = field(default_factory=dict)
+    beat: float = 0.5                                       # тривалість біта треку, с
+    transitions: list[dict] = field(default_factory=list)   # {cut, kind, t, out, in}
+
+    def transition_at(self, cut: int) -> dict | None:
+        """Перехід на склейці перед кліпом з індексом `cut`."""
+        return next((t for t in self.transitions if t["cut"] == cut), None)
 
     def as_dict(self) -> dict:
         return asdict(self)

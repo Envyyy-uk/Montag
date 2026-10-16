@@ -28,7 +28,8 @@ def built(tmp_path_factory):
 
     root = tmp_path_factory.mktemp("e2e")
     settings = Settings(_env_file=None, library_dir=root / "library", inbox_dir=root / "inbox",
-                        db_path=root / "library" / "db.sqlite3", whisper_enabled=False)
+                        db_path=root / "library" / "db.sqlite3", whisper_enabled=False,
+                        render_height=360)
     settings.ensure_dirs()
     conn = open_db(settings.database_path)
     p = create_project(conn, settings.library_path, "Концерт Brixton")
@@ -95,14 +96,29 @@ def test_live_inserts(built):
     assert kinds.count("insert") == len(ins)
 
 
-def test_draft_and_mix(built):
+def test_export_preview_and_mix(built):
     settings, conn, p = built
     edit = conn.execute("SELECT * FROM edits").fetchone()
     tl = json.loads((settings.library_path / edit["timeline_path"]).read_text(encoding="utf-8"))
-    st = _probe(settings.library_path / edit["preview_path"])
-    assert (st["video"]["width"], st["video"]["height"]) == (1280, 720)
-    assert int(st["video"]["nb_read_frames"]) == round(tl["duration"] * tl["fps"])
-    assert abs(float(st["audio"]["duration"]) - tl["duration"]) < 0.1
+    final = _probe(settings.library_path / edit["export_path"])
+    assert (final["video"]["width"], final["video"]["height"]) == settings.render_size
+    assert int(final["video"]["nb_read_frames"]) == round(tl["duration"] * tl["fps"])
+    assert abs(float(final["audio"]["duration"]) - tl["duration"]) < 0.1
+    prev = _probe(settings.library_path / edit["preview_path"])
+    assert int(prev["video"]["height"]) == 360  # превʼю ≤ 720p, тут рендер 360p
+    assert edit["export_path"].endswith("_clip_v001.mp4") and "exports" in edit["export_path"]
+    assert edit["style_id"] == "minidv-concert" and edit["style_level"] == 2
+
+
+def test_transitions_only_on_accents(built):
+    settings, conn, p = built
+    edit = conn.execute("SELECT * FROM edits").fetchone()
+    tl = json.loads((settings.library_path / edit["timeline_path"]).read_text(encoding="utf-8"))
+    cuts = len(tl["clips"]) - 1
+    assert 1 <= len(tl["transitions"]) <= 0.2 * cuts  # 80–90% склейок різкі
+    accents = [m["t"] for m in tl["markers"]] + [i["end"] for i in tl["inserts"]]
+    for t in tl["transitions"]:
+        assert min(abs(t["t"] - a) for a in accents) <= 0.5 / tl["fps"]
 
 
 def test_api_and_reedit_without_gemini(built):

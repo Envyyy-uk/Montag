@@ -202,6 +202,12 @@ MIGRATIONS: list[str] = [
         UNIQUE (project_id, kind, version)
     );
     """,
+    # 6 — стилі й фінальний рендер (Спринт 6)
+    """
+    ALTER TABLE edits ADD COLUMN export_path TEXT;
+    ALTER TABLE edits ADD COLUMN style_id TEXT;
+    ALTER TABLE edits ADD COLUMN style_level INTEGER;
+    """,
 ]
 
 

@@ -1,0 +1,34 @@
+{
+  "id": "clean",
+  "name": "Чистий",
+  "description": "Без імітації плівки: лише легка корекція контрасту й насиченості.",
+  "event_types": [
+    "інше"
+  ],
+  "filter": "standard",
+  "default_level": 2,
+  "look": {
+    "contrast": 1.03,
+    "saturation": 1.03
+  },
+  "levels": {
+    "1": {
+      "contrast": 1.0,
+      "saturation": 1.0
+    },
+    "2": {},
+    "3": {
+      "contrast": 1.06,
+      "saturation": 1.08,
+      "sharpen": 0.3
+    }
+  },
+  "transitions": {
+    "allowed": [
+      "flash",
+      "zoom",
+      "whip"
+    ],
+    "max_share": 0.1
+  }
+}
