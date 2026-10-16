@@ -21,10 +21,30 @@ def _probe(path):
     return {s["codec_type"]: s for s in json.loads(out)["streams"]}
 
 
+class FakeFaceDetector:
+    """Одне обличчя, що повільно пливе кадром, — щоб перевірити кадрування без справжніх облич."""
+
+    def __init__(self):
+        self.n = 0
+
+    def detect(self, rgb):
+        from analysis.framing import Box
+        self.n += 1
+        cx = 0.4 + 0.1 * np.sin(self.n / 20)
+        return [Box(cx - 0.04, 0.3, cx + 0.04, 0.45, 0.9, "face")]
+
+    def close(self):
+        pass
+
+
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
+    from analysis import framing
     from core.config import Settings
     from tests import media
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(framing, "make_detector", lambda models_dir: FakeFaceDetector())
 
     root = tmp_path_factory.mktemp("e2e")
     settings = Settings(_env_file=None, library_dir=root / "library", inbox_dir=root / "inbox",
@@ -43,6 +63,7 @@ def built(tmp_path_factory):
     request_edit(conn, p["id"])  # без ключа Gemini — локальні оцінки
     while w.run_one(conn):
         pass
+    mp.undo()
     return settings, conn, p
 
 
@@ -189,3 +210,39 @@ def test_davinci_package(built):
         clip_frames = Fraction(clip_el.get("duration")[:-1]) / fd
         assert clip_frames <= frames <= clip_frames + 2 * tl["fps"]
     assert (root_dir / f"{xml_path.stem}_абсолютні.fcpxml").exists()
+
+
+def test_vertical_reels(built):
+    settings, conn, p = built
+    row = conn.execute("SELECT * FROM edits WHERE kind = 'vertical'").fetchone()
+    assert row is not None, list(conn.execute("SELECT kind, status, error FROM jobs"))
+    reels = json.loads(row["summary"])["reels"]
+    assert len(reels) >= 2
+    seen = set()
+    for r in reels:
+        st = _probe(settings.library_path / r["path"])
+        w, h = settings.render_size
+        assert (st["video"]["width"], st["video"]["height"]) == (h, w)  # 9:16
+        assert st["video"]["avg_frame_rate"] == "30/1"
+        assert 0 < float(st["video"]["duration"]) <= 25.05
+        assert "audio" in st
+        assert any(pc["role"] == "peak" for pc in r["pieces"])
+        assert {pc["framing"] for pc in r["pieces"]} <= {"crop", "fit", "native"}
+        for pc in r["pieces"]:
+            for a in np.arange(pc["src_in"], pc["src_in"] + pc["duration"] - 1e-6, 0.25):
+                key = (pc["media_id"], round(float(a), 2))
+                assert key not in seen
+                seen.add(key)
+    assert any(pc["framing"] == "crop" for r in reels for pc in r["pieces"])
+
+
+def test_vertical_settings_api(built):
+    settings, conn, p = built
+    with TestClient(create_app(settings, start_worker=False)) as client:
+        r = client.put(f"/api/projects/{p['id']}/vertical-settings", json={"audio": "none", "count": 1})
+        assert r.json() == {"count": 1, "length": 20.0, "audio": "none"}
+        assert client.put(f"/api/projects/{p['id']}/vertical-settings", json={"audio": "loud"}).status_code == 422
+        assert client.put(f"/api/projects/{p['id']}/vertical-settings", json={"length": 40}).status_code == 422
+        edit = conn.execute("SELECT id FROM edits WHERE kind = 'vertical'").fetchone()["id"]
+        assert client.get(f"/api/edits/{edit}/reels/1").status_code == 200
+        assert client.get(f"/api/edits/{edit}/reels/99").status_code == 404

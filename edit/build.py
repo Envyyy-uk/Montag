@@ -105,7 +105,10 @@ def load_pool(conn: sqlite3.Connection, settings: Settings, project: sqlite3.Row
             score=sc["score"] if sc else quality.local_score(m, th) * 10,
             source=sc["source"] if sc else "local",
             tags=json.loads(sc["tags"]) if sc and sc["tags"] else [],
-            scene=(r["media_id"], r["scene_idx"]), camera=_camera(info), motion=m.get("motion", 0.0)))
+            scene=(r["media_id"], r["scene_idx"]), camera=_camera(info), motion=m.get("motion", 0.0),
+            burst=r["burst_db"] or 0.0,
+            vertical_ok=bool(sc["vertical_ok"]) if sc and sc["vertical_ok"] is not None else None,
+            subject_x=sc["subject_x"] if sc else None))
     # хронологія: ранг кожного шматка в усій події
     shots.sort(key=lambda s: (order[s.media_id], s.start))
     for i, s in enumerate(shots):

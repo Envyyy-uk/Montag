@@ -19,6 +19,12 @@ from worker import queue
 router = APIRouter(prefix="/api", tags=["edits"])
 
 
+class VerticalParams(BaseModel):
+    count: int | None = Field(None, ge=1, le=10)
+    length: float | None = Field(None, ge=15, le=25)
+    audio: str | None = Field(None, pattern="^(live|track|none)$")
+
+
 class ClipParams(BaseModel):
     length: float | None = Field(None, ge=5, le=600)
     track_start: float | None = Field(None, ge=0)
@@ -128,3 +134,39 @@ def reedit(project_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
     """Перемонтаж на кешованих оцінках — без запитів у Gemini."""
     _project(conn, project_id)
     return {"job_id": queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id)}
+
+
+@router.get("/projects/{project_id}/vertical-settings")
+def get_vertical_settings(project_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
+    from edit.verticals import vertical_params
+    return vertical_params(_project(conn, project_id))
+
+
+@router.put("/projects/{project_id}/vertical-settings")
+def put_vertical_settings(project_id: int, body: VerticalParams, conn: sqlite3.Connection = Depends(db)) -> dict:
+    from edit.verticals import vertical_params
+    project = _project(conn, project_id)
+    stored = json.loads(project["settings"] or "{}")
+    stored["vertical"] = {**stored.get("vertical", {}), **body.model_dump(exclude_none=True)}
+    conn.execute("UPDATE projects SET settings = ? WHERE id = ?", (json.dumps(stored, ensure_ascii=False), project_id))
+    return vertical_params(_project(conn, project_id))
+
+
+@router.post("/projects/{project_id}/verticals", status_code=202)
+def make_verticals(project_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
+    """Перемонтаж вертикалей на кешованих оцінках."""
+    _project(conn, project_id)
+    return {"job_id": queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id)}
+
+
+@router.get("/edits/{edit_id}/reels/{n}")
+def reel(edit_id: int, n: int, conn: sqlite3.Connection = Depends(db),
+         settings: Settings = Depends(settings_dep)) -> FileResponse:
+    row = conn.execute("SELECT * FROM edits WHERE id = ? AND kind = 'vertical'", (edit_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Вертикалей не знайдено")
+    reels = json.loads(row["summary"] or "{}").get("reels", [])
+    if not 1 <= n <= len(reels):
+        raise HTTPException(404, "Немає такого ролика")
+    path = settings.library_path / reels[n - 1]["path"]
+    return FileResponse(path, media_type="video/mp4", filename=path.name)

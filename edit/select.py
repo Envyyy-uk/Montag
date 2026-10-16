@@ -34,6 +34,9 @@ class Shot:
     chrono: float = 0.0        # позиція в події 0–1
     motion: float = 0.0
     used: int = 0
+    burst: float = 0.0          # сплеск натовпу, дБ над фоном
+    vertical_ok: bool | None = None
+    subject_x: float | None = None
 
     @property
     def length(self) -> float:

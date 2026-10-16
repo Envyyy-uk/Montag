@@ -390,6 +390,7 @@ def _finish_scoring(conn, project_id: int) -> None:
     if not _active_requests(conn, project_id):
         conn.execute("UPDATE projects SET status = 'editing' WHERE id = ?", (project_id,))
         queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id)
+        queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id)
 
 
 def score_project(conn: sqlite3.Connection, settings: Settings, payload: dict, progress: Progress,
