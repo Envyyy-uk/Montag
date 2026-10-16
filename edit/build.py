@@ -238,7 +238,11 @@ def render_audio(settings: Settings, conn: sqlite3.Connection, tl: Timeline, out
         lives.append((ins.start, audio_mix.decode_stereo(src, ins.src_in, ins.end - ins.start)))
     duck = tl.inserts[0].duck_db if tl.inserts else -12.0
     gain = tl.inserts[0].live_gain_db if tl.inserts else 0.0
-    audio_mix.write_wav(out, audio_mix.mix(track, lives, duck, gain))
+    report: dict = {}
+    audio_mix.write_wav(out, audio_mix.mix(track, lives, duck, gain, report=report))
+    for ins, g in zip(tl.inserts, report["inserts_db"]):
+        ins.applied_gain_db = g
+    tl.params["track_gain_db"] = report["master_db"]
 
 
 def edit_dir(settings: Settings, slug: str, version: int) -> Path:
@@ -294,8 +298,8 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
     lib = settings.library_path
     out = edit_dir(settings, project["slug"], version)
     tl_path, wav = out / "timeline.json", out / "mix.wav"
-    tl.save(tl_path)
     render_audio(settings, conn, tl, wav)
+    tl.save(tl_path)
     progress(0.1)
     exports = lib / project["slug"] / "exports"
     final = exports / f"{project['slug']}_clip_v{version:03d}.mp4"
@@ -318,5 +322,10 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
         (project["id"], version, json.dumps(tl.params, ensure_ascii=False), str(tl_path.relative_to(lib)),
          str(wav.relative_to(lib)), str(preview.relative_to(lib)), str(final.relative_to(lib)), style.id, level,
          json.dumps(summary, ensure_ascii=False)))
+    edit_id = conn.execute("SELECT id FROM edits WHERE project_id = ? AND kind = 'clip' AND version = ?",
+                           (project["id"], version)).fetchone()[0]
     conn.execute("UPDATE projects SET status = 'edited', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
                  " WHERE id = ?", (project["id"],))
+    # проєкт DaVinci — окремим завданням, щоб mp4 був готовий швидше
+    from worker import queue
+    queue.enqueue(conn, "export_davinci", {"edit_id": edit_id}, project_id=project["id"])

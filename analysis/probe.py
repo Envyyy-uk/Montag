@@ -33,6 +33,7 @@ class MediaInfo:
     rotation: int = 0
     shot_at: str | None = None  # ISO 8601 UTC
     device: str = ""            # камера: «Apple iPhone 15 Pro», «GoPro», …
+    timecode: str = ""          # вбудований таймкод початку (iPhone пише час доби)
     audio_codec: str = ""
     sample_rate: int = 0
 
@@ -135,6 +136,13 @@ def _device(data: dict, video: dict | None) -> str:
     return ""
 
 
+def _timecode(data: dict) -> str:
+    tc = ((data.get("format") or {}).get("tags") or {}).get("timecode")
+    for st in data.get("streams") or []:
+        tc = tc or (st.get("tags") or {}).get("timecode")
+    return tc or ""
+
+
 def parse(data: dict) -> MediaInfo:
     streams = data.get("streams") or []
     video = next((s for s in streams if s.get("codec_type") == "video"
@@ -146,7 +154,7 @@ def parse(data: dict) -> MediaInfo:
         raise ProbeError("У файлі немає ні відео, ні звуку")
 
     info = MediaInfo(duration=duration, has_video=video is not None, has_audio=audio is not None,
-                     shot_at=_shot_at(data), device=_device(data, video))
+                     shot_at=_shot_at(data), device=_device(data, video), timecode=_timecode(data))
     if video:
         info.width = int(video.get("width") or 0)
         info.height = int(video.get("height") or 0)

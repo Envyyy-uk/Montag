@@ -70,6 +70,28 @@ def video(edit_id: int, conn: sqlite3.Connection = Depends(db),
     return FileResponse(path, media_type="video/mp4", filename=path.name)
 
 
+@router.get("/edits/{edit_id}/davinci")
+def davinci_status(edit_id: int, conn: sqlite3.Connection = Depends(db),
+                   settings: Settings = Depends(settings_dep)) -> dict:
+    """Де лежить проєкт DaVinci (папку відкривають на ноутбуці: File → Import → Timeline)."""
+    row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Монтаж не знайдено")
+    pending = conn.execute("SELECT status FROM jobs WHERE kind = 'export_davinci' AND payload = ?"
+                           " ORDER BY id DESC LIMIT 1", (json.dumps({"edit_id": edit_id}),)).fetchone()
+    path = settings.library_path / row["davinci_path"] if row["davinci_path"] else None
+    return {"ready": bool(path and path.exists()), "fcpxml": str(path) if path else None,
+            "folder": str(path.parent) if path else None, "job": pending["status"] if pending else None}
+
+
+@router.post("/edits/{edit_id}/davinci", status_code=202)
+def davinci_export(edit_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
+    row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Монтаж не знайдено")
+    return {"job_id": queue.enqueue(conn, "export_davinci", {"edit_id": edit_id}, project_id=row["project_id"])}
+
+
 @router.get("/edits/{edit_id}/preview")
 def preview(edit_id: int, conn: sqlite3.Connection = Depends(db),
             settings: Settings = Depends(settings_dep)) -> FileResponse:

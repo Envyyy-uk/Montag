@@ -41,6 +41,7 @@ class Insert:
     src_in: float
     duck_db: float = -12.0
     live_gain_db: float = 0.0
+    applied_gain_db: float = 0.0   # фактичне підсилення живого звуку в зведенні (для A2 у DaVinci)
 
 
 @dataclass

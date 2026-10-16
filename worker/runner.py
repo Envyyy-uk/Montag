@@ -20,12 +20,13 @@ Handler = Callable[..., str | None]
 
 def default_handlers() -> dict[str, Handler]:
     from analysis import scoring
-    from edit import build
+    from edit import build, davinci
 
     return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media,
             "analyze_track": stages.analyze_track,
             "score_project": scoring.score_project, "poll_batch": scoring.poll_batch,
-            "edit_project": build.edit_project, "style_test": stages.style_test}
+            "edit_project": build.edit_project, "style_test": stages.style_test,
+            "export_davinci": davinci.export_davinci}
 
 
 class Worker:

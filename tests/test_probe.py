@@ -63,3 +63,17 @@ def test_attached_picture_is_not_video():
         {"codec_type": "audio", "codec_name": "mp3", "sample_rate": "44100"},
         {"codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}}]}
     assert not parse(raw).has_video
+
+
+def test_embedded_timecode(tmp_path):
+    from tests.media import ff
+
+    p = tmp_path / "tc.mov"
+    ff("-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=1", "-c:v", "libx264", "-preset", "ultrafast",
+       "-timecode", "21:03:05:12", str(p))
+    info, _ = probe(p)
+    assert info.timecode == "21:03:05:12"
+    from fractions import Fraction
+
+    from render.fcpxml import timecode_seconds
+    assert timecode_seconds(info.timecode, info.fps) == Fraction(21 * 3600 + 3 * 60 + 5) + Fraction(12, 30)

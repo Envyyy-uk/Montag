@@ -138,3 +138,54 @@ def test_api_and_reedit_without_gemini(built):
     s2 = json.loads(v2["summary"])
     assert 28 <= s2["duration"] <= 32 and s2["inserts"] == 0
     assert conn.execute("SELECT COUNT(*) FROM gemini_requests").fetchone()[0] == before
+
+
+def test_davinci_package(built):
+    import xml.etree.ElementTree as ET
+    from fractions import Fraction
+    from urllib.parse import unquote
+
+    from render.fcpxml import frame_duration
+
+    settings, conn, p = built
+    edit = conn.execute("SELECT * FROM edits WHERE version = 1").fetchone()
+    assert ("export_davinci", "done") in {(j["kind"], j["status"]) for j in conn.execute("SELECT * FROM jobs")}
+    xml_path = settings.library_path / edit["davinci_path"]
+    root_dir = xml_path.parent
+    tl = json.loads((settings.library_path / edit["timeline_path"]).read_text(encoding="utf-8"))
+    root = ET.parse(xml_path).getroot()
+
+    # без offline media: кожен відносний шлях існує всередині папки проєкту
+    for rep in root.iter("media-rep"):
+        f = (root_dir / unquote(rep.get("src"))).resolve()
+        assert f.exists() and root_dir.resolve() in f.parents
+    # оригінали — ті самі байти (жорстке посилання або копія), бібліотека не змінена
+    for f in (root_dir / "media" / "originals").iterdir():
+        mid = int(f.name.split("_")[0])
+        orig = settings.library_path / conn.execute("SELECT original_path FROM media WHERE id = ?", (mid,)).fetchone()[0]
+        assert f.stat().st_size == orig.stat().st_size
+
+    spine = root.find(".//spine").findall("asset-clip")
+    assert len(spine) == len(tl["clips"]) and all(c.get("enabled") == "0" for c in spine)
+    v2 = [c for c in root.iter("asset-clip") if c.get("lane") == "1"]
+    assert len(v2) == len(tl["clips"]) and all(c.get("enabled") is None for c in v2)
+    assert len([c for c in root.iter("asset-clip") if c.get("lane") == "-1"]) == 1
+    assert len([c for c in root.iter("asset-clip") if c.get("lane") == "-2"]) == len(tl["inserts"])
+    assert len(list(root.iter("marker"))) == len(tl["markers"])
+
+    # усі часи послідовності — цілі кадри
+    fd = frame_duration(tl["fps"])
+    for c in spine:
+        for attr in ("offset", "duration"):
+            v = Fraction(c.get(attr)[:-1])
+            assert (v / fd).denominator == 1, (attr, v)
+    assert Fraction(root.find(".//sequence").get("duration")[:-1]) / fd == round(tl["duration"] * tl["fps"])
+
+    # стилізовані файли — з запасом: довші за свій кліп і не довші за кліп + 2 с
+    for clip_el in v2:
+        asset = root.find(f".//asset[@id='{clip_el.get('ref')}']")
+        f = root_dir / unquote(asset.find("media-rep").get("src"))
+        frames = int(_probe(f)["video"]["nb_read_frames"])
+        clip_frames = Fraction(clip_el.get("duration")[:-1]) / fd
+        assert clip_frames <= frames <= clip_frames + 2 * tl["fps"]
+    assert (root_dir / f"{xml_path.stem}_абсолютні.fcpxml").exists()

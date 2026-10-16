@@ -208,6 +208,10 @@ MIGRATIONS: list[str] = [
     ALTER TABLE edits ADD COLUMN style_id TEXT;
     ALTER TABLE edits ADD COLUMN style_level INTEGER;
     """,
+    # 7 — проєкт DaVinci (Спринт 7)
+    """
+    ALTER TABLE edits ADD COLUMN davinci_path TEXT;
+    """,
 ]
 
 

@@ -49,8 +49,11 @@ def rms(x: np.ndarray) -> float:
 
 
 def mix(track: np.ndarray, lives: list[tuple[float, np.ndarray]], duck_db: float = -12.0,
-        live_gain_db: float = 0.0, sr: int = SR) -> np.ndarray:
-    """track — стерео вікна; lives — (час початку, стерео шматок живого звуку)."""
+        live_gain_db: float = 0.0, sr: int = SR, report: dict | None = None) -> np.ndarray:
+    """track — стерео вікна; lives — (час початку, стерео шматок живого звуку).
+    `report` отримує фактичні рівні для DaVinci: `inserts_db` — підсилення кожної вставки (A2),
+    `master_db` — загальне зниження проти перевантаження (стосується й треку A1)."""
+    applied_db: list[float] = []
     n = len(track)
     env = duck_envelope(n, [(s, s + len(x) / sr) for s, x in lives], duck_db, sr)
     out = track * env[:, None]
@@ -62,8 +65,9 @@ def mix(track: np.ndarray, lives: list[tuple[float, np.ndarray]], duck_db: float
         if not len(x):
             continue
         level = rms(x)
-        if level > 1e-5 and target > 0:
-            x *= min(target / level, 10.0)  # не підсилювати тишу понад +20 дБ
+        k = min(target / level, 10.0) if level > 1e-5 and target > 0 else 1.0  # тишу — не понад +20 дБ
+        x *= k
+        applied_db.append(round(20 * np.log10(k), 2))
         f = min(fade, len(x) // 2)
         if f:
             ramp = np.linspace(0, 1, f, dtype=np.float32)[:, None]
@@ -71,8 +75,14 @@ def mix(track: np.ndarray, lives: list[tuple[float, np.ndarray]], duck_db: float
             x[-f:] *= ramp[::-1]
         out[a:a + len(x)] += x
     peak = float(np.abs(out).max()) if out.size else 0.0
+    master = 1.0
     if peak > 0.98:
-        out *= 0.98 / peak
+        master = 0.98 / peak
+        out *= master
+    if report is not None:
+        m_db = round(20 * np.log10(master), 2)
+        report["master_db"] = m_db
+        report["inserts_db"] = [round(g + m_db, 2) for g in applied_db]
     return out.astype(np.float32)
 
 
