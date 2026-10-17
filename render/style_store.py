@@ -32,3 +32,15 @@ def resolve(conn: sqlite3.Connection, settings: Settings, style_id: str | None) 
     except StyleError:
         style = get_style("clean")
     return style, approved_levels(conn).get(style.id, style.default_level)
+
+
+def resolve_for_project(conn: sqlite3.Connection, settings: Settings, project: sqlite3.Row,
+                        level_override: int | None = None) -> tuple[Style, int]:
+    """Стиль проєкту: обраний користувачем → правило «назавжди» → автовибір за типом події → стандартний."""
+    from edit.changes import global_style
+
+    auto = json.loads(project["settings"] or "{}").get("style_auto", {}).get("style_id")
+    style, level = resolve(conn, settings, project["style_id"] or global_style(conn) or auto)
+    if level_override in (1, 2, 3):
+        level = int(level_override)
+    return style, level

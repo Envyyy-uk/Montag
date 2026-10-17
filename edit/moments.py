@@ -36,8 +36,9 @@ class Moment:
         return sum(p.duration for p in self.pieces)
 
 
-def peak_value(s: Shot) -> float:
+def peak_value(s: Shot, tag_weights: dict[str, float] | None = None) -> float:
     v = s.score / 10 + 0.3 * min(1.0, s.burst / 15)
+    v += sum((tag_weights or {}).get(t, 0.0) for t in s.tags)  # правки словами: «більше натовпу»
     if s.vertical_ok:
         v += 0.1
     elif s.vertical_ok is False:
@@ -122,12 +123,13 @@ def build_moment(peak: Shot, pool: list[Shot], used: set, length: float) -> Mome
     return m
 
 
-def choose(pool: list[Shot], count: int = 3, length: float = 20.0) -> list[Moment]:
+def choose(pool: list[Shot], count: int = 3, length: float = 20.0,
+           tag_weights: dict[str, float] | None = None) -> list[Moment]:
     length = min(MAX_LEN, max(MIN_LEN, length))
     used: set = set()
     moments: list[Moment] = []
     sep = 1 / (2 * max(1, count))
-    for peak in sorted(pool, key=lambda s: -peak_value(s)):
+    for peak in sorted(pool, key=lambda s: -peak_value(s, tag_weights)):
         if len(moments) >= count:
             break
         if _key(peak) in used:
@@ -136,7 +138,7 @@ def choose(pool: list[Shot], count: int = 3, length: float = 20.0) -> list[Momen
             continue  # бажано з різних частин події
         moments.append(build_moment(peak, pool, used, length))
     # матеріалу на різні частини не вистачило — беремо, що є
-    for peak in sorted(pool, key=lambda s: -peak_value(s)):
+    for peak in sorted(pool, key=lambda s: -peak_value(s, tag_weights)):
         if len(moments) >= count:
             break
         if _key(peak) not in used:

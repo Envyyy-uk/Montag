@@ -16,6 +16,7 @@ dependencies = [
     "google-genai>=1.30",
     "jsonschema>=4.20",
     "mediapipe>=0.10.20",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

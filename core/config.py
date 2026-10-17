@@ -78,6 +78,9 @@ class Settings(BaseSettings):
         w = round(h * 16 / 9)
         return w - w % 2, h
 
+    # Смак: інструкція і правила «назавжди»
+    taste_file: Path = Path("taste.md")
+
     # Аналіз
     default_filter_preset: str = "lofi"
     whisper_enabled: bool = True
@@ -112,6 +115,14 @@ class Settings(BaseSettings):
     @property
     def inbox_path(self) -> Path:
         return self.resolve(self.inbox_dir)
+
+    @property
+    def taste_path(self) -> Path:
+        return self.resolve(self.taste_file)
+
+    @property
+    def user_styles_path(self) -> Path:
+        return self.library_path / "styles"
 
     @property
     def database_path(self) -> Path:

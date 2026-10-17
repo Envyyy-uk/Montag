@@ -43,7 +43,7 @@ def styles(conn: sqlite3.Connection = Depends(db), settings: Settings = Depends(
              "default_level": s.default_level, "approved_level": approved.get(s.id),
              "transitions": [{"id": k, "name": TRANSITIONS[k].name} for k in s.transitions.get("allowed", [])],
              "tests": {lvl: test_path(settings, s.id, lvl).exists() for lvl in (1, 2, 3)}}
-            for s in list_styles()]
+            for s in list_styles(include_drafts=False)]
 
 
 @router.post("/styles/{style_id}/test", status_code=202)

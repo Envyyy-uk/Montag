@@ -21,8 +21,12 @@ DEFAULTS = {"count": 3, "length": 20.0, "audio": "live"}  # audio: live | track 
 AUDIO_MODES = ("live", "track", "none")
 
 
-def vertical_params(project: sqlite3.Row) -> dict:
-    return {**DEFAULTS, **json.loads(project["settings"] or "{}").get("vertical", {})}
+def vertical_params(project: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict:
+    """Стандартні ← правила «назавжди» ← налаштування проєкту."""
+    from edit.changes import global_vertical_defaults
+
+    base = global_vertical_defaults(conn, dict(DEFAULTS)) if conn is not None else dict(DEFAULTS)
+    return {**base, **json.loads(project["settings"] or "{}").get("vertical", {})}
 
 
 def _track_audio(conn, settings: Settings, project, duration: float) -> np.ndarray | None:
@@ -49,13 +53,15 @@ def vertical_project(conn: sqlite3.Connection, settings: Settings, payload: dict
     project = conn.execute("SELECT * FROM projects WHERE id = ?", (payload["project_id"],)).fetchone()
     if project is None:
         return
-    params = {**vertical_params(project), **(payload.get("params") or {})}
-    pool = load_pool(conn, settings, project)
+    params = {**vertical_params(project, conn), **(payload.get("params") or {})}
+    from edit.build import project_params
+    clip = project_params(project, conn)
+    pool = load_pool(conn, settings, project, clip.get("excluded"))
     if not pool:
         log.warning("проєкт %s: немає матеріалу для вертикалей", project["id"])
         return
-    chosen = moments.choose(pool, int(params["count"]), float(params["length"]))
-    style, level = style_store.resolve(conn, settings, project["style_id"])
+    chosen = moments.choose(pool, int(params["count"]), float(params["length"]), clip.get("tag_weights"))
+    style, level = style_store.resolve_for_project(conn, settings, project, clip.get("style_level"))
     look = style.look(level)
     lib = settings.library_path
     media = {m["id"]: m for m in conn.execute("SELECT * FROM media WHERE project_id = ?", (project["id"],))}

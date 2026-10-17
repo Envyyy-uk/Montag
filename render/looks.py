@@ -51,13 +51,34 @@ class Style:
         return self.data.get("transitions", {})
 
 
-def list_styles() -> list[Style]:
+# Стилі користувача (збережені й чернетки) живуть у library/styles — реєструються сервером і воркером.
+USER_DIRS: list[Path] = []
+
+
+def register_user_dir(path: Path) -> None:
+    if path not in USER_DIRS:
+        USER_DIRS.append(path)
+
+
+def list_styles(include_drafts: bool = True) -> list[Style]:
     out = []
-    for p in sorted(STYLES_DIR.glob("*.json")):
-        if p.name == "filters.json":
+    dirs = [(STYLES_DIR, False)]
+    for d in USER_DIRS:
+        dirs += [(d, False), (d / "drafts", True)]
+    seen = set()
+    for folder, draft in dirs:
+        if draft and not include_drafts:
             continue
-        d = json.loads(p.read_text(encoding="utf-8"))
-        out.append(Style(d["id"], d["name"], d))
+        for p in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+            if p.name == "filters.json":
+                continue
+            d = json.loads(p.read_text(encoding="utf-8"))
+            if d["id"] in seen:
+                continue
+            seen.add(d["id"])
+            d["draft"] = draft
+            d.setdefault("user", folder != STYLES_DIR)
+            out.append(Style(d["id"], d["name"], d))
     return out
 
 

@@ -43,6 +43,7 @@ DEFAULT_PARAMS = {
     "excluded": [],          # [[media_id, start], ...]
     "transitions": True,     # ефектні переходи на акцентах (перемикач у превʼю)
     "disabled_transitions": [],
+    "style_level": None,     # рівень інтенсивності стилю саме для цього проєкту
 }
 
 
@@ -50,9 +51,13 @@ class EditError(RuntimeError):
     pass
 
 
-def project_params(project: sqlite3.Row) -> dict:
+def project_params(project: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict:
+    """Параметри кліпу: стандартні ← правила «назавжди» ← налаштування проєкту («тільки тут»)."""
+    from edit.changes import global_clip_defaults
+
+    base = global_clip_defaults(conn, dict(DEFAULT_PARAMS)) if conn is not None else dict(DEFAULT_PARAMS)
     stored = json.loads(project["settings"] or "{}").get("clip", {})
-    return {**DEFAULT_PARAMS, **stored}
+    return {**base, **stored}
 
 
 def standard_fps(fps: float) -> float:
@@ -75,6 +80,21 @@ def _camera(info: dict) -> str:
 def _chrono_order(media_rows) -> dict[int, tuple]:
     """Ключ хронології: час зйомки, далі порядок додавання."""
     return {m["id"]: (m["shot_at"] or "9999", m["id"]) for m in media_rows}
+
+
+CROWD_BURST_DB = 6.0
+LIVELY_MOTION = 15.0
+
+
+def derived_tags(tags: list[str], burst_db: float, motion: float) -> list[str]:
+    """Теги Gemini + виведені локально: «натовп» зі сплеску звуку, «рух» з оптичного потоку.
+    Так правка «більше натовпу» працює і без оцінок Gemini."""
+    out = list(tags)
+    if burst_db >= CROWD_BURST_DB and "натовп" not in out:
+        out.append("натовп")
+    if motion >= LIVELY_MOTION and "рух" not in out:
+        out.append("рух")
+    return out
 
 
 def load_pool(conn: sqlite3.Connection, settings: Settings, project: sqlite3.Row,
@@ -104,7 +124,8 @@ def load_pool(conn: sqlite3.Connection, settings: Settings, project: sqlite3.Row
             media_id=r["media_id"], start=r["start"], end=r["end"],
             score=sc["score"] if sc else quality.local_score(m, th) * 10,
             source=sc["source"] if sc else "local",
-            tags=json.loads(sc["tags"]) if sc and sc["tags"] else [],
+            tags=derived_tags(json.loads(sc["tags"]) if sc and sc["tags"] else [], r["burst_db"] or 0.0,
+                              m.get("motion", 0.0)),
             scene=(r["media_id"], r["scene_idx"]), camera=_camera(info), motion=m.get("motion", 0.0),
             burst=r["burst_db"] or 0.0,
             vertical_ok=bool(sc["vertical_ok"]) if sc and sc["vertical_ok"] is not None else None,
@@ -284,11 +305,11 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
     track_row = tracks[0]
     analysis = settings.library_path / project["slug"] / "analysis" / f"{track_row['id']}_track.json"
     track = TrackAnalysis.load(analysis)
-    params = {**project_params(project), **(payload.get("params") or {})}
+    params = {**project_params(project, conn), **(payload.get("params") or {})}
     conn.execute("UPDATE projects SET status = 'rendering' WHERE id = ?", (project["id"],))
     build = build_timeline(conn, settings, project, track_row, track, params)
     tl = build.timeline
-    style, level = style_store.resolve(conn, settings, project["style_id"])
+    style, level = style_store.resolve_for_project(conn, settings, project, params.get("style_level"))
     version = (conn.execute("SELECT MAX(version) FROM edits WHERE project_id = ? AND kind = 'clip'",
                             (project["id"],)).fetchone()[0] or 0) + 1
     st = style.transitions

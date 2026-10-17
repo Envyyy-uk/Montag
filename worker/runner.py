@@ -32,7 +32,10 @@ def default_handlers() -> dict[str, Handler]:
 class Worker:
     def __init__(self, settings: Settings, handlers: dict[str, Handler] | None = None,
                  poll_seconds: float = 2.0):
+        from render.looks import register_user_dir
+
         self.settings = settings
+        register_user_dir(settings.user_styles_path)
         self.handlers = handlers if handlers is not None else default_handlers()
         self.poll_seconds = poll_seconds
         self.inbox = InboxScanner(settings.inbox_path, settings.library_path)

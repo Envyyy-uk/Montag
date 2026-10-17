@@ -49,7 +49,7 @@ def built(tmp_path_factory):
     root = tmp_path_factory.mktemp("e2e")
     settings = Settings(_env_file=None, library_dir=root / "library", inbox_dir=root / "inbox",
                         db_path=root / "library" / "db.sqlite3", whisper_enabled=False,
-                        render_height=360)
+                        render_height=360, taste_file=root / "taste.md")
     settings.ensure_dirs()
     conn = open_db(settings.database_path)
     p = create_project(conn, settings.library_path, "Концерт Brixton")
@@ -246,3 +246,29 @@ def test_vertical_settings_api(built):
         edit = conn.execute("SELECT id FROM edits WHERE kind = 'vertical'").fetchone()["id"]
         assert client.get(f"/api/edits/{edit}/reels/1").status_code == 200
         assert client.get(f"/api/edits/{edit}/reels/99").status_code == 404
+
+
+def test_more_crowd_by_words_changes_clip_without_gemini(built):
+    settings, conn, p = built
+
+    def crowd_share(edit_row):
+        tl = json.loads((settings.library_path / edit_row["timeline_path"]).read_text(encoding="utf-8"))
+        dur = sum(c["end"] - c["start"] for c in tl["clips"])
+        crowd = sum(c["end"] - c["start"] for c in tl["clips"] if c["kind"] == "insert" or "натовп" in c["tags"])
+        return crowd / dur
+
+    before = conn.execute("SELECT * FROM edits WHERE kind = 'clip' ORDER BY version DESC").fetchone()
+    gemini_before = conn.execute("SELECT COUNT(*) FROM gemini_requests").fetchone()[0]
+    spend_before = conn.execute("SELECT COUNT(*) FROM spend").fetchone()[0]
+    with TestClient(create_app(settings, start_worker=False)) as client:
+        r = client.post(f"/api/projects/{p['id']}/requests", json={"text": "більше натовпу"}).json()
+        assert r["source"] == "local"
+        assert "edit_project" in client.post(f"/api/requests/{r['id']}/apply", json={"scope": "here"}).json()["jobs"]
+    w = Worker(settings)
+    while w.run_one(conn):
+        pass
+    after = conn.execute("SELECT * FROM edits WHERE kind = 'clip' ORDER BY version DESC").fetchone()
+    assert after["version"] == before["version"] + 1
+    assert crowd_share(after) > crowd_share(before) + 0.1, (crowd_share(before), crowd_share(after))
+    assert conn.execute("SELECT COUNT(*) FROM gemini_requests").fetchone()[0] == gemini_before
+    assert conn.execute("SELECT COUNT(*) FROM spend").fetchone()[0] == spend_before

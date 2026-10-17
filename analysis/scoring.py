@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import logging
 import sqlite3
@@ -22,7 +23,7 @@ from typing import Callable
 from analysis import quality, thresholds
 from analysis.gemini_client import GeminiBackend, GenaiBackend, Result
 from core import budget
-from core.config import ROOT_DIR, Settings
+from core.config import Settings
 from worker import queue
 
 log = logging.getLogger(__name__)
@@ -75,7 +76,9 @@ class Taste:
 
     @property
     def digest(self) -> str:
-        h = hashlib.sha256(self.text.encode("utf-8"))
+        # блок правил «назавжди» діє через параметри монтажу — він не скидає кеш оцінок
+        text = re.sub(r"\s*<!-- правила:початок.*?<!-- правила:кінець -->\s*", "\n", self.text, flags=re.S).strip()
+        h = hashlib.sha256(text.encode("utf-8"))
         for p in self.take + self.skip:
             h.update(p.name.encode())
             h.update(hashlib.sha256(p.read_bytes()).digest())
@@ -86,7 +89,7 @@ IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def load_taste(settings: Settings) -> Taste:
-    path = ROOT_DIR / "taste.md"
+    path = settings.taste_path
     text = path.read_text(encoding="utf-8").strip() if path.exists() else DEFAULT_TASTE
     base = settings.library_path / "taste"
 
@@ -388,6 +391,8 @@ def _active_requests(conn, project_id: int) -> bool:
 
 def _finish_scoring(conn, project_id: int) -> None:
     if not _active_requests(conn, project_id):
+        from edit import style_auto
+        style_auto.apply(conn, project_id)  # тип події → стиль (або пропозиція)
         conn.execute("UPDATE projects SET status = 'editing' WHERE id = ?", (project_id,))
         queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id)
         queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id)

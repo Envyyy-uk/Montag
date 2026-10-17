@@ -212,6 +212,27 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE edits ADD COLUMN davinci_path TEXT;
     """,
+    # 8 — правки словами і правила смаку (Спринт 9)
+    """
+    CREATE TABLE edit_requests (
+        id          INTEGER PRIMARY KEY,
+        project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        text        TEXT NOT NULL,
+        changes     TEXT NOT NULL,
+        source      TEXT NOT NULL CHECK (source IN ('local', 'gemini')),
+        status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'here', 'always', 'rejected')),
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+
+    CREATE TABLE taste_rules (
+        id          INTEGER PRIMARY KEY,
+        text        TEXT NOT NULL,
+        changes     TEXT NOT NULL,
+        active      INTEGER NOT NULL DEFAULT 1,
+        request_id  INTEGER REFERENCES edit_requests(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    """,
 ]
 
 

@@ -11,6 +11,8 @@ def settings(tmp_path):
         inbox_dir=tmp_path / "inbox",
         db_path=tmp_path / "library" / "test.sqlite3",
         whisper_enabled=False,
+        taste_file=tmp_path / "taste.md",
+        render_height=240,
     )
 
 
