@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from core.config import Settings, get_settings
 from core.db import open_db, schema_version
 from core.system_check import run_all
-from server import budget, edits, media, projects, requests, styles, uploads
+from server import budget, edits, media, projects, requests, styles, ui, uploads
 
 
 def create_app(settings: Settings | None = None, start_worker: bool | None = None) -> FastAPI:
@@ -43,6 +43,7 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
     app.include_router(edits.router)
     app.include_router(styles.router)
     app.include_router(requests.router)
+    app.include_router(ui.router)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
             conn.close()
         return [dict(r) for r in rows]
 
+    ui.mount_web(app)  # після всіх /api — інакше перехопить їх
     return app
 
 

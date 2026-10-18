@@ -22,6 +22,8 @@ class Decision(BaseModel):
 
 @router.get("/budget")
 def get_budget(conn: sqlite3.Connection = Depends(db), settings: Settings = Depends(settings_dep)) -> dict:
+    from core.config import with_overrides
+    settings = with_overrides(settings, conn)
     st = budget.state(conn, settings.monthly_budget_usd, settings.daily_request_limit)
     return {**st.as_dict(), "confirm_threshold": settings.confirm_threshold_usd,
             "model": settings.gemini_model, "api_key_set": bool(settings.gemini_api_key.get_secret_value()),

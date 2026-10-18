@@ -28,7 +28,6 @@ __pycache__/
 
 # Фронтенд
 web/node_modules/
-web/dist/
 
 # Інше
 .DS_Store

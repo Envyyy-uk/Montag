@@ -350,6 +350,9 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
                            (project["id"], version)).fetchone()[0]
     conn.execute("UPDATE projects SET status = 'edited', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
                  " WHERE id = ?", (project["id"],))
+    from core import notify
+    notify.send(conn, settings, f"Готово: {project['name']}",
+                f"Кліп {tl.duration:.0f} с, {len(tl.clips) - 1} склейок — можна дивитися", f"/project/{project['id']}")
     # проєкт DaVinci — окремим завданням, щоб mp4 був готовий швидше
     from worker import queue
     queue.enqueue(conn, "export_davinci", {"edit_id": edit_id}, project_id=project["id"])

@@ -19,6 +19,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "google-api-python-client>=2.100",
     "google-auth-oauthlib>=1.2",
+    "pywebpush>=2.0",
 ]
 
 [project.optional-dependencies]

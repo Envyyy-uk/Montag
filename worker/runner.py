@@ -66,8 +66,9 @@ class Worker:
             return False
         handler = self.handlers[job["kind"]]
         log.info("завдання %s (%s) почалось", job["id"], job["kind"])
+        from core.config import with_overrides
         try:
-            result = handler(conn, self.settings, queue.payload(job),
+            result = handler(conn, with_overrides(self.settings, conn), queue.payload(job),
                              lambda p: queue.set_progress(conn, job["id"], p),
                              **({"job_id": job["id"]} if getattr(handler, "wants_job_id", False) else {}))
         except Exception as exc:  # noqa: BLE001 — будь-яка помилка етапу не валить воркер

@@ -233,6 +233,15 @@ MIGRATIONS: list[str] = [
         created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
     """,
+    # 9 — Web Push (Спринт 11)
+    """
+    CREATE TABLE push_subscriptions (
+        id          INTEGER PRIMARY KEY,
+        endpoint    TEXT NOT NULL UNIQUE,
+        data        TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    """,
 ]
 
 

@@ -423,6 +423,9 @@ def score_project(conn: sqlite3.Connection, settings: Settings, payload: dict, p
             queue.await_confirm(conn, job_id, {"forecast_usd": total, "requests": len(plan),
                                                "segments": sum(len(p.items) for p in plan)})
             conn.execute("UPDATE projects SET status = 'awaiting_confirm' WHERE id = ?", (project_id,))
+            from core import notify
+            notify.send(conn, settings, f"Підтверди вартість: {project['name']}",
+                        f"Аналіз у Gemini коштуватиме ≈ ${total:.2f}", f"/project/{project_id}")
             return queue.KEEP_STATUS
         if approved is False:
             plan = []

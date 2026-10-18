@@ -137,3 +137,17 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+OVERRIDABLE = {"monthly_budget_usd": float, "confirm_threshold_usd": float, "daily_request_limit": int}
+
+
+def with_overrides(settings: Settings, conn) -> Settings:
+    """Ліміт і поріг, змінені в інтерфейсі (екран «Ліміт»), мають перевагу над .env."""
+    import json
+
+    row = conn.execute("SELECT value FROM settings WHERE key = 'overrides'").fetchone()
+    if not row:
+        return settings
+    data = {k: OVERRIDABLE[k](v) for k, v in json.loads(row["value"]).items() if k in OVERRIDABLE}
+    return settings.model_copy(update=data) if data else settings
