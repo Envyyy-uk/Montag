@@ -45,6 +45,8 @@ class Worker:
         from sources.gdrive import DrivePoller
         self.drive = DrivePoller(settings)
         self._last_drive_poll = 0.0
+        from core.power import KeepAwake
+        self.awake = KeepAwake()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_housekeeping = 0.0
@@ -58,6 +60,9 @@ class Worker:
             except Exception as exc:  # noqa: BLE001 — без інтернету Drive просто чекає
                 log.warning("Google Drive недоступний: %s", exc)
         stages.auto_queue_idle(conn, self.settings.idle_minutes_before_edit)
+        # поки в черзі є робота — Windows не засинає; порожня черга — звичайна поведінка
+        busy = conn.execute("SELECT 1 FROM jobs WHERE status IN ('queued', 'running') LIMIT 1").fetchone()
+        self.awake.update(busy is not None)
 
     def run_one(self, conn) -> bool:
         """Виконує одне завдання. False — черга порожня."""
@@ -98,6 +103,7 @@ class Worker:
                 if not self.run_one(conn):
                     self._stop.wait(self.poll_seconds)
         finally:
+            self.awake.update(False)  # воркер зупиняється — сон знову дозволено
             conn.close()
 
     def start(self) -> None:

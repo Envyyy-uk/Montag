@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as tus from "tus-js-client";
-import { api } from "../api.js";
+import { api, driveLinks, measureUpload } from "../api.js";
 import { Bar, Glass, Toast } from "../components/ui.jsx";
 
 export default function AddVideo() {
@@ -16,8 +16,24 @@ export default function AddVideo() {
 
   useEffect(() => {
     api.get("/api/projects").then((p) => { setProjects(p); if (p[0]) setPid(String(p[0].id)); });
-    api.get("/api/upload-route").then(setRoute).catch(() => {});
   }, []);
+  // шлях вибирається сам: швидкість до ноута + тип з'єднання Tailscale
+  useEffect(() => {
+    if (!pid) return;
+    let alive = true;
+    setRoute(null);
+    (async () => {
+      let mbps = null;
+      try { mbps = await measureUpload(); } catch (_) {}
+      const q = new URLSearchParams({ project_id: pid, ...(mbps ? { mbps: mbps.toFixed(1) } : {}) });
+      const r = await api.get(`/api/upload-route?${q}`).catch(() => null);
+      if (!alive || !r) return;
+      setRoute({ ...r, mbps });
+      const p = projects.find((x) => String(x.id) === pid);
+      if (r.drive_url && p) driveLinks.set(pid, p.name, r.drive_url);
+    })();
+    return () => { alive = false; };
+  }, [pid, projects]);
 
   const create = async () => {
     try {
@@ -63,14 +79,24 @@ export default function AddVideo() {
         </select>
       </Glass>
 
-      {route && (
-        <Glass className="row">
-          <span className="rec-dot idle" style={{ background: route.route === "direct" ? "var(--ok)" : "var(--tc)" }} />
-          <span>{route.label}</span>
-        </Glass>
-      )}
-
       <Glass className="stack">
+        <div className="row">
+          <span className="rec-dot idle" style={{ background: !route ? "var(--ink-3)" : route.route === "direct" ? "var(--ok)" : "var(--tc)", opacity: 1 }} />
+          <span className="grow">{route ? route.label : "Перевіряю з'єднання з ноутбуком…"}</span>
+          {route?.mbps && <span className="mono faint" style={{ fontSize: 12 }}>{route.mbps.toFixed(0)} Мбіт/с</span>}
+        </div>
+        {route && <div className="faint" style={{ fontSize: 13 }}>{route.reason}</div>}
+        {route?.route === "drive" && (
+          <div className="stack">
+            <div className="muted" style={{ fontSize: 14 }}>Завантаж відео в папку проєкту в Google Drive — ноутбук забере їх сам, перевірить і видалить з Drive.</div>
+            {route.drive_url
+              ? <a className="pill primary" href={route.drive_url} target="_blank" rel="noreferrer">Відкрити папку в Google Drive</a>
+              : <span className="faint">Папка в Drive ще створюється…</span>}
+          </div>
+        )}
+      </Glass>
+
+      {route?.route !== "drive" && <Glass className="stack">
         <div className="drop-zone" onClick={() => input.current?.click()} role="button" tabIndex={0}>
           <div style={{ fontSize: 28 }}>＋</div>
           <div>Вибрати відео або трек</div>
@@ -87,7 +113,7 @@ export default function AddVideo() {
             <div style={{ gridColumn: "1 / -1" }}>{f.state === "error" ? <span className="faint">{f.error}</span> : <Bar value={f.progress} />}</div>
           </div>
         ))}
-      </Glass>
+      </Glass>}
 
       {allDone && (
         <button className="pill rec" onClick={async () => { await api.post(`/api/projects/${pid}/edit`); nav(`/project/${pid}`); }}>

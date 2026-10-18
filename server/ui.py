@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -139,10 +139,49 @@ def push_test(conn: sqlite3.Connection = Depends(db), settings: Settings = Depen
     return {"sent": notify.send(conn, settings, "Автомонтаж", "Сповіщення працюють ✓", "/")}
 
 
+@router.post("/speedtest")
+async def speedtest(request: Request) -> dict:
+    """Телефон шле до 4 МБ і сам міряє час — так видно реальну швидкість завантаження на ноут."""
+    n = 0
+    async for chunk in request.stream():
+        n += len(chunk)
+        if n > 4 * 1024 * 1024:
+            raise HTTPException(413, "Не більше 4 МБ")
+    return {"bytes": n}
+
+
 @router.get("/upload-route")
-def upload_route() -> dict:
-    """Куди вантажити з телефона. Автовибір за мережею — Спринт 12; поки напряму на ноут."""
-    return {"route": "direct", "label": "Вдома: напряму на ноут"}
+def upload_route(request: Request, mbps: float | None = None, project_id: int | None = None,
+                 conn: sqlite3.Connection = Depends(db), settings: Settings = Depends(settings_dep)) -> dict:
+    """Вдома (пряме з'єднання через домашню мережу і достатня швидкість) — напряму на ноут, інакше — Google Drive."""
+    from core import tailscale
+    from server.auth import client_ip, is_remote
+    from sources import gdrive
+
+    drive_url = None
+    if project_id is not None:
+        folders = json.loads((conn.execute("SELECT value FROM settings WHERE key = 'drive_projects'").fetchone()
+                              or {"value": "{}"})["value"])
+        fid = folders.get(str(project_id), {}).get("id")
+        drive_url = f"https://drive.google.com/drive/folders/{fid}" if fid else None
+    if not is_remote(request):
+        home, reason = True, "телефон у тій самій мережі, що й ноутбук"
+    else:
+        peer = tailscale.peer_for(client_ip(request))
+        if peer is None:
+            home, reason = False, "не вдалося визначити з'єднання"
+        elif not peer.direct:
+            home, reason = False, "з'єднання через ретранслятор Tailscale (поза домом)"
+        elif not peer.lan:
+            home, reason = False, "пряме з'єднання, але не через домашню мережу"
+        else:
+            home, reason = True, "пряме з'єднання через домашню мережу"
+    if home and mbps is not None and mbps < settings.upload_direct_min_mbps:
+        home, reason = False, f"швидкість {mbps:.0f} Мбіт/с — нижче порогу {settings.upload_direct_min_mbps:.0f}"
+    if home or not gdrive.configured(settings):
+        label = "Вдома: напряму на ноут" if home else "Напряму на ноут (Google Drive не підключено)"
+        return {"route": "direct", "label": label, "reason": reason, "drive_url": drive_url}
+    return {"route": "drive", "label": "Через Google Drive", "reason": reason, "drive_url": drive_url}
 
 
 def mount_web(app) -> None:

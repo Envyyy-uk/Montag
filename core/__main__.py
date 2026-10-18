@@ -16,6 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check", help="перевірити FFmpeg, NVENC, CUDA")
     sub.add_parser("init", help="створити папки і базу даних")
     sub.add_parser("gemini-ping", help="один крихітний текстовий запит: перевірка ключа, моделі й ціни")
+    sub.add_parser("tailscale-cert", help="HTTPS-сертифікат для <машина>.<tailnet>.ts.net (tailscale cert)")
     args = parser.parse_args(argv)
 
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -30,6 +31,16 @@ def main(argv: list[str] | None = None) -> int:
     settings.ensure_dirs()
     if args.cmd == "gemini-ping":
         return gemini_ping(settings)
+    if args.cmd == "tailscale-cert":
+        from core import tailscale
+        try:
+            name = tailscale.make_cert(settings.resolve(settings.tls_cert_file), settings.resolve(settings.tls_key_file))
+        except RuntimeError as exc:
+            print(f"Не вдалося: {exc}")
+            return 1
+        print(f"Сертифікат готовий. Адреса для iPhone: https://{name}:{settings.https_port}/")
+        print("Сертифікат діє 90 днів — повтори цю команду раз на 2 місяці.")
+        return 0
     conn = open_db(settings.database_path)
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     conn.close()

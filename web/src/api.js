@@ -6,7 +6,15 @@ async function req(method, url, body) {
     opt.headers["content-type"] = "application/json";
     opt.body = JSON.stringify(body);
   }
-  const res = await fetch(url, opt);
+  let res;
+  try {
+    res = await fetch(url, opt);
+  } catch (e) {
+    window.dispatchEvent(new CustomEvent("am-offline", { detail: true }));  // ноутбук недоступний
+    throw new Error("Ноутбук недоступний");
+  }
+  window.dispatchEvent(new CustomEvent("am-offline", { detail: false }));
+  if (res.status === 401) window.dispatchEvent(new Event("am-auth"));
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).detail || msg; } catch (_) {}
@@ -44,3 +52,21 @@ export const PROJECT_STATUS = {
   collecting: "чекає", queued: "у черзі", scoring: "аналіз", awaiting_confirm: "чекає підтвердження",
   editing: "монтаж", rendering: "монтаж", edited: "готово", needs_track: "потрібен трек",
 };
+
+// Посилання на папки Drive запам'ятовуються — працюють, навіть коли ноутбук вимкнений.
+export const driveLinks = {
+  get: () => { try { return JSON.parse(localStorage.getItem("am-drive") || "{}"); } catch (_) { return {}; } },
+  set: (projectId, name, url) => {
+    try { const d = driveLinks.get(); d[projectId] = { name, url }; localStorage.setItem("am-drive", JSON.stringify(d)); } catch (_) {}
+  },
+};
+
+/** Швидкість завантаження на ноут: 2 МБ шумом, Мбіт/с. */
+export async function measureUpload(bytes = 2 * 1024 * 1024) {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf.subarray(0, 65536));
+  const t0 = performance.now();
+  await fetch("/api/speedtest", { method: "POST", body: buf });
+  const s = (performance.now() - t0) / 1000;
+  return (bytes * 8) / 1e6 / Math.max(s, 0.001);
+}

@@ -51,8 +51,12 @@ class Settings(BaseSettings):
     # Сервер
     host: str = "127.0.0.1"
     port: int = 8765
-    tailscale_host: str = ""
+    tailscale_host: str = ""            # порожньо — визначити автоматично (tailscale ip)
+    https_port: int = 8443              # HTTPS на Tailscale-адресі
+    tls_cert_file: Path = Path("library/tls/cert.pem")
+    tls_key_file: Path = Path("library/tls/key.pem")
     access_pin: SecretStr = SecretStr("")
+    upload_direct_min_mbps: float = Field(20.0, ge=0)  # нижче — краще через Google Drive
 
     # Gemini і бюджет
     gemini_api_key: SecretStr = SecretStr("")
@@ -104,6 +108,14 @@ class Settings(BaseSettings):
         if not v.strip():
             return ""
         return _check_bind_host(v)
+
+    @field_validator("access_pin")
+    @classmethod
+    def _validate_pin(cls, v: SecretStr) -> SecretStr:
+        pin = v.get_secret_value()
+        if pin and (len(pin) < 4 or not pin.isdigit()):
+            raise ValueError("ACCESS_PIN — щонайменше 4 цифри")
+        return v
 
     def resolve(self, path: Path) -> Path:
         """Відносні шляхи — від кореня репозиторію."""

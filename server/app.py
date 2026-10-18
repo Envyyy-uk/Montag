@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from core.config import Settings, get_settings
 from core.db import open_db, schema_version
 from core.system_check import run_all
-from server import budget, edits, media, projects, requests, styles, ui, uploads
+from server import auth, budget, edits, media, projects, requests, styles, ui, uploads
 
 
 def create_app(settings: Settings | None = None, start_worker: bool | None = None) -> FastAPI:
@@ -36,6 +36,8 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
 
     app = FastAPI(title="Автомонтаж", lifespan=lifespan)
     app.state.settings = settings
+    app.add_middleware(auth.PinMiddleware)
+    app.include_router(auth.router)
     app.include_router(projects.router)
     app.include_router(uploads.router)
     app.include_router(media.router)
@@ -84,13 +86,46 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
     return app
 
 
+def listeners(settings: Settings) -> list[dict]:
+    """127.0.0.1 (HTTP, для самого ноутбука) + Tailscale-адреса (HTTPS, для iPhone). Ніколи не 0.0.0.0."""
+    from core import tailscale
+    from core.config import _check_bind_host
+
+    out = [{"host": settings.host, "port": settings.port}]
+    ts_host = settings.tailscale_host or tailscale.self_ip() or ""
+    if ts_host:
+        ts_host = _check_bind_host(ts_host)  # лише 100.64.0.0/10
+        cert, key = settings.resolve(settings.tls_cert_file), settings.resolve(settings.tls_key_file)
+        item = {"host": ts_host, "port": settings.https_port}
+        if cert.exists() and key.exists():
+            item |= {"ssl_certfile": str(cert), "ssl_keyfile": str(key)}
+        out.append(item)
+    return out
+
+
 def main() -> None:
+    import asyncio
+
     import uvicorn
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = get_settings()
-    # Сервер слухає лише на 127.0.0.1; Tailscale-інтерфейс додається в Спринті 12.
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    app = create_app(settings)
+    servers = []
+    for i, ln in enumerate(listeners(settings)):
+        # життєвий цикл (воркер) — лише в першого слухача, інакше воркерів було б два
+        cfg = uvicorn.Config(app, lifespan="on" if i == 0 else "off", log_level="info", **ln)
+        servers.append(uvicorn.Server(cfg))
+        scheme = "https" if "ssl_certfile" in ln else "http"
+        logging.info("слухаю %s://%s:%s", scheme, ln["host"], ln["port"])
+        if i and scheme == "http":
+            logging.warning("Tailscale без HTTPS: PWA і push на iPhone не працюватимуть — python -m core tailscale-cert")
+        if i and not settings.access_pin.get_secret_value():
+            logging.warning("ACCESS_PIN не задано — віддалений доступ закритий")
+
+    async def run():
+        await asyncio.gather(*(s.serve() for s in servers))
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
