@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     google_client_secret_file: str = ""
     google_token_file: str = ""
     drive_root_folder: str = "Автомонтаж"
+    drive_poll_seconds: int = Field(60, ge=10)
 
     @field_validator("host")
     @classmethod

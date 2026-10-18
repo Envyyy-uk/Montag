@@ -57,6 +57,15 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
     def system() -> dict:
         return run_all().as_dict()
 
+    @app.get("/api/drive")
+    def drive_status() -> dict:
+        from sources import gdrive
+        conn = open_db(settings.database_path)
+        try:
+            return gdrive.status(conn, settings)
+        finally:
+            conn.close()
+
     @app.get("/api/queue")
     def queue_status() -> list[dict]:
         conn = open_db(settings.database_path)

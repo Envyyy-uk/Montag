@@ -111,3 +111,7 @@ def vertical_project(conn: sqlite3.Connection, settings: Settings, payload: dict
         (project["id"], version, json.dumps(params, ensure_ascii=False), str(desc.relative_to(lib)),
          reels[0]["path"] if reels else None, reels[0]["path"] if reels else None, style.id, level,
          json.dumps(summary, ensure_ascii=False)))
+    edit_id = conn.execute("SELECT id FROM edits WHERE project_id = ? AND kind = 'vertical' AND version = ?",
+                           (project["id"], version)).fetchone()[0]
+    from worker import queue
+    queue.enqueue(conn, "drive_upload", {"edit_id": edit_id}, project_id=project["id"])

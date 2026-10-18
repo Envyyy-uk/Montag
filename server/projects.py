@@ -48,6 +48,11 @@ def create(body: NewProject, conn: sqlite3.Connection = Depends(db),
         row = create_project(conn, settings.library_path, body.name)
     except ProjectError as exc:
         raise HTTPException(409, str(exc)) from exc
+    # однойменна папка в Google Drive (якщо Drive підключено; без мережі — пізніше)
+    from sources import gdrive
+    from worker import queue
+    if gdrive.configured(settings):
+        queue.enqueue(conn, "drive_create_folder", {"project_id": row["id"]}, project_id=row["id"])
     return _project_json(row, conn)
 
 

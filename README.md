@@ -170,3 +170,25 @@ API: `GET /api/edits/<id>/davinci` (стан і шлях), `POST /api/edits/<id>
 **Стилі словами:** `POST /api/styles/generate {"text": "теплий вицвілий з зерном"}` → чернетка з
 3 рівнями + тестовий 5-секундний рендер → `POST /api/styles/drafts/<id>/save`. Без Gemini працює
 генератор за ключовими словами. Стилі користувача — у `library/styles/`.
+
+## Google Drive (відео поза домом)
+
+**Налаштування (один раз, на ноутбуці):**
+1. [console.cloud.google.com](https://console.cloud.google.com) → той самий проєкт, що й для Gemini →
+   *APIs & Services → Library* → увімкни **Google Drive API**.
+2. *OAuth consent screen*: тип **External**, додай себе в тестові користувачі, потім **Publish app**
+   (статус *In production*; без цього токен перестає працювати через 7 днів). Перевірка Google для
+   особистого застосунку не потрібна — під час входу просто буде попередження «неперевірений застосунок».
+3. *Credentials → Create credentials → OAuth client ID → Desktop app* → завантаж JSON у папку репозиторію
+   як `client_secret.json` (він у `.gitignore`).
+4. У `.env`: `GOOGLE_CLIENT_SECRET_FILE=client_secret.json`, `GOOGLE_TOKEN_FILE=library/google_token.json`.
+5. `python -m sources.gdrive auth` — відкриється браузер, дозволь доступ. Токен збережеться в `library/`.
+
+**Як працює:**
+- Новий проєкт у програмі створює в Drive `Автомонтаж/<назва>/` і `Готово/`. Папка, створена в Drive
+  з телефона, створює проєкт у програмі.
+- Воркер раз на `DRIVE_POLL_SECONDS` дивиться в папки проєктів. Файл забирається, коли двічі поспіль має той
+  самий розмір і MD5 (завантаження з телефона завершилось), перевіряється розмір і MD5, потрапляє в бібліотеку
+  і лише тоді видаляється з Drive. Пошкоджене завантаження — повтор, у Drive файл лишається.
+- Готові mp4 (720p-превʼю кліпу і вертикалі) дублюються в `Готово/` — їх можна дивитися, коли ноутбук вимкнений.
+- Стан: `GET /api/drive`.

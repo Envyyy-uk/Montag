@@ -21,12 +21,15 @@ Handler = Callable[..., str | None]
 def default_handlers() -> dict[str, Handler]:
     from analysis import scoring
     from edit import build, davinci, verticals
+    from sources import gdrive
 
     return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media,
             "analyze_track": stages.analyze_track,
             "score_project": scoring.score_project, "poll_batch": scoring.poll_batch,
             "edit_project": build.edit_project, "style_test": stages.style_test,
-            "export_davinci": davinci.export_davinci, "vertical_project": verticals.vertical_project}
+            "export_davinci": davinci.export_davinci, "vertical_project": verticals.vertical_project,
+            "drive_fetch": gdrive.drive_fetch, "drive_create_folder": gdrive.drive_create_folder,
+            "drive_upload": gdrive.drive_upload}
 
 
 class Worker:
@@ -39,12 +42,21 @@ class Worker:
         self.handlers = handlers if handlers is not None else default_handlers()
         self.poll_seconds = poll_seconds
         self.inbox = InboxScanner(settings.inbox_path, settings.library_path)
+        from sources.gdrive import DrivePoller
+        self.drive = DrivePoller(settings)
+        self._last_drive_poll = 0.0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_housekeeping = 0.0
 
     def housekeeping(self, conn) -> None:
         self.inbox.scan(conn)
+        if time.monotonic() - self._last_drive_poll >= self.settings.drive_poll_seconds:
+            self._last_drive_poll = time.monotonic()
+            try:
+                self.drive.poll(conn)
+            except Exception as exc:  # noqa: BLE001 — без інтернету Drive просто чекає
+                log.warning("Google Drive недоступний: %s", exc)
         stages.auto_queue_idle(conn, self.settings.idle_minutes_before_edit)
 
     def run_one(self, conn) -> bool:

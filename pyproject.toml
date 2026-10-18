@@ -17,6 +17,8 @@ dependencies = [
     "jsonschema>=4.20",
     "mediapipe>=0.10.20",
     "python-multipart>=0.0.9",
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.2",
 ]
 
 [project.optional-dependencies]
