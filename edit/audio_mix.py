@@ -20,10 +20,13 @@ def decode_stereo(path: Path, start: float, duration: float, sr: int = SR) -> np
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", f"{start:.4f}", "-t",
            f"{duration:.4f}", "-i", str(path), "-vn", "-ac", "2", "-ar", str(sr), "-f", "f32le", "-"]
     proc = subprocess.run(cmd, capture_output=True, timeout=600)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.decode("utf-8", "replace")[-500:])
-    data = np.frombuffer(proc.stdout, dtype=np.float32).reshape(-1, 2)
     n = int(round(duration * sr))
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", "replace")
+        if "does not contain any stream" in err or "matches no streams" in err:
+            return np.zeros((n, 2), np.float32)  # відео без звукової доріжки — тиша
+        raise RuntimeError(err[-500:])
+    data = np.frombuffer(proc.stdout, dtype=np.float32).reshape(-1, 2)
     if len(data) < n:  # трек або відео коротші — тиша
         data = np.vstack([data, np.zeros((n - len(data), 2), np.float32)])
     return data[:n].copy()

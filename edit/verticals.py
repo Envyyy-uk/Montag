@@ -14,6 +14,7 @@ from analysis import framing as framing_mod
 from core.config import Settings
 from edit import audio_mix, moments
 from edit.build import load_pool, render_sources
+from edit.select import EDGE_GUARD
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +80,8 @@ def vertical_project(conn: sqlite3.Connection, settings: Settings, payload: dict
                 src = sources[p.media_id]
                 fr = framing_mod.analyze_clip(detector, lib / (m["gemini_proxy_path"] or m["proxy_path"]),
                                               p.src_in, p.duration, src.width, src.height, p.subject_x)
-                pieces.append((src, p.src_in, p.duration, fr))
+                # 2 кадри запасу до межі шматка — без «спалах-кадра» з сусідньої сцени; звук рахується з тих самих тривалостей
+                pieces.append((src, p.src_in, max(1 / 30, p.duration - EDGE_GUARD), fr))
             if params["audio"] == "live":
                 audio = live_audio([(s.path, a, d) for s, a, d, _ in pieces])
             elif params["audio"] == "track":

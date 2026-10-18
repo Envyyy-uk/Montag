@@ -95,11 +95,16 @@ def test_hero_holds_up_to_two_bars():
 
 
 def test_slot_split_when_material_short():
-    pool = [Shot(1, 0, 1.1, 7, scene=(1, i)) for i in range(4)]
-    for i, s in enumerate(pool):
-        s.scene = (1, i)
-    ch = choose([_slot(0, 4, "low")], pool, 2.0)  # 2 с слот, а шматки по 1,1 с
-    assert len(ch) == 2 and all(c.slot.end - c.slot.start <= 1.1 + 1e-9 for c in ch)
+    pool = [Shot(1, 0, 1.2, 7, scene=(1, i)) for i in range(4)]
+    ch = choose([_slot(0, 4, "low")], pool, 2.0)  # 2 с слот, а шматки по 1,2 с
+    assert len(ch) == 2 and all(c.slot.end - c.slot.start <= pool[0].usable + 1e-9 for c in ch)
+
+
+def test_clip_never_touches_segment_edges():
+    pool = [Shot(1, 10, 13, 9, scene=(1, 0)), Shot(2, 0, 3, 8, scene=(2, 0))]
+    for c in choose([_slot(0, 4), _slot(4, 8)], pool, 4.0):  # слоти по 2 с, шматки по 3 с
+        assert c.src_in >= c.shot.start + 2 / 30 - 1e-9
+        assert c.src_in + (c.slot.end - c.slot.start) <= c.shot.end - 2 / 30 + 1e-9
 
 
 def test_tag_weights_shift_choice():
@@ -167,3 +172,12 @@ def test_insert_avoids_drop(song_analysis):
     drop_beats = {a.downbeats[k] for k in a.drops}
     for p in inserts.plan(a, w, evs):
         assert not any(p.first_beat <= b < p.last_beat for b in drop_beats)
+
+
+def test_decode_silent_video_gives_silence(tmp_path):
+    from tests.media import ff
+
+    p = tmp_path / "silent.mp4"
+    ff("-f", "lavfi", "-i", "testsrc2=s=160x90:r=30:d=2", "-c:v", "libx264", "-preset", "ultrafast", str(p))
+    x = audio_mix.decode_stereo(p, 0.5, 1.0)
+    assert x.shape == (audio_mix.SR, 2) and not x.any()

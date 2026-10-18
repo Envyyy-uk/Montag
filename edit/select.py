@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from edit.rhythm import Slot
 
+EDGE_GUARD = 2 / 30   # 2 кадри від межі шматка: округлення пошуку не зачепить сусідню сцену
 HERO_SCORE = 9.0
 HERO_MAX_BEATS = 8
 HERO_TOP_SHARE = 0.10   # «герой» — лише з верхніх 10% матеріалу
@@ -41,6 +42,11 @@ class Shot:
     @property
     def length(self) -> float:
         return self.end - self.start
+
+    @property
+    def usable(self) -> float:
+        """Довжина без запасу на краях: кліп не торкається склейки в джерелі (без «спалах-кадрів»)."""
+        return max(0.0, self.length - 2 * EDGE_GUARD)
 
 
 @dataclass
@@ -108,7 +114,7 @@ def choose(slots: list[Slot], pool: list[Shot], total: float, w: Weights | None 
     while i < len(work):
         slot = work[i]
         d = slot.end - slot.start
-        fits = [s for s in pool if s.length >= d - 1e-3]
+        fits = [s for s in pool if s.usable >= d - 1e-3]
         if not fits:
             if slot.beats > 1:  # розбити на два коротші слоти
                 mid_beat = slot.first_beat + slot.beats // 2
@@ -130,7 +136,7 @@ def choose(slots: list[Slot], pool: list[Shot], total: float, w: Weights | None 
         if best.score >= hero_floor and slot.first_beat - last_hero_beat >= HERO_COOLDOWN:
             j = i + 1
             while (j < len(work) and work[j].last_beat - slot.first_beat <= HERO_MAX_BEATS
-                   and work[j].end - slot.start <= best.length + 1e-3):
+                   and work[j].end - slot.start <= best.usable + 1e-3):
                 j += 1
             if j > i + 1:
                 merged = Slot(slot.first_beat, work[j - 1].last_beat, slot.start, work[j - 1].end,
@@ -138,7 +144,7 @@ def choose(slots: list[Slot], pool: list[Shot], total: float, w: Weights | None 
                 work[i:j] = [merged]
                 slot, d, hero, last_hero_beat = merged, merged.end - merged.start, True, slot.first_beat
 
-        src_in = best.start + max(0.0, (best.length - d) / 2)
+        src_in = best.start + EDGE_GUARD + max(0.0, (best.usable - d) / 2)
         out.append(Choice(slot, best, round(src_in, 4), hero=hero, reused=best.used > 0))
         best.used += 1
         cams[best.camera] = cams.get(best.camera, 0) + d
