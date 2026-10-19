@@ -74,6 +74,38 @@ export default function Budget() {
           ))}
         </tbody></table>
       </Glass>
+
+      <ClaudeAccess setToast={setToast} />
     </div>
+  );
+}
+
+function ClaudeAccess({ setToast }) {
+  const [m, setM] = useState(null);
+  const load = () => api.get("/api/mcp").then(setM).catch(() => {});
+  useEffect(() => { load(); }, []);
+  if (!m) return null;
+  const revoke = async (c) => {
+    try { await api.del(`/api/mcp/clients/${encodeURIComponent(c.client_id)}`); setToast(`Доступ «${c.name}» відкликано`); load(); }
+    catch (e) { setToast(e.message); }
+  };
+  return (
+    <Glass className="stack">
+      <div className="label">Claude з iPhone (MCP)</div>
+      {!m.enabled && <div className="muted">Вимкнено. Увімкнення — у README: MCP_REMOTE і Tailscale Funnel.</div>}
+      {m.url && <div className="mono" style={{ fontSize: 13, wordBreak: "break-all" }}>{m.url}</div>}
+      {m.enabled && m.clients.length === 0 && <div className="muted">Ще ніхто не підключився.</div>}
+      {m.clients.map((c) => (
+        <div key={c.client_id} className="row">
+          <div className="grow">{c.name}
+            <div className="faint" style={{ fontSize: 12 }}>
+              {c.last_used_at ? `востаннє ${c.last_used_at.slice(5, 16).replace("T", " ")}` : "ще не користувався"}
+              {!c.active && " · токен прострочено"}
+            </div>
+          </div>
+          <button className="pill small" onClick={() => revoke(c)}>Відкликати</button>
+        </div>
+      ))}
+    </Glass>
   );
 }

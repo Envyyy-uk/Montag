@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from core.config import Settings, get_settings
 from core.db import open_db, schema_version
 from core.system_check import run_all
-from server import auth, budget, edits, media, projects, requests, styles, ui, uploads
+from server import auth, budget, edits, mcp_access, media, projects, requests, styles, ui, uploads
 
 
 def create_app(settings: Settings | None = None, start_worker: bool | None = None) -> FastAPI:
@@ -46,6 +46,7 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
     app.include_router(styles.router)
     app.include_router(requests.router)
     app.include_router(ui.router)
+    app.include_router(mcp_access.router)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -122,6 +123,18 @@ def main() -> None:
             logging.warning("Tailscale без HTTPS: PWA і push на iPhone не працюватимуть — python -m core tailscale-cert")
         if i and not settings.access_pin.get_secret_value():
             logging.warning("ACCESS_PIN не задано — віддалений доступ закритий")
+
+    if settings.mcp_remote:
+        from mcp_server.remote import build_remote_app, public_url
+        url = public_url(settings)
+        if url:
+            # лише 127.0.0.1: назовні його виводить Tailscale Funnel, а не прямий слухач
+            mcp_app = build_remote_app(settings, app, url)
+            servers.append(uvicorn.Server(uvicorn.Config(mcp_app, host="127.0.0.1", port=settings.mcp_http_port,
+                                                         lifespan="on", log_level="info")))
+            logging.info("MCP для Claude: %s/mcp → 127.0.0.1:%s", url, settings.mcp_http_port)
+        else:
+            logging.warning("MCP_REMOTE=true, але адреса невідома: запусти Tailscale з MagicDNS або задай MCP_PUBLIC_URL")
 
     async def run():
         await asyncio.gather(*(s.serve() for s in servers))

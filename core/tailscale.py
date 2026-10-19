@@ -69,6 +69,19 @@ def make_cert(cert_file: Path, key_file: Path) -> str:
     return name
 
 
+def funnel(port: int, enable: bool) -> str:
+    """Tailscale Funnel: https://<машина>.<tailnet>.ts.net (порт 443) → 127.0.0.1:<port>. Лише MCP, не PWA."""
+    cli, name = _cli(), dns_name()
+    if not cli or not name:
+        raise RuntimeError("Tailscale не запущено або в tailnet не ввімкнено MagicDNS")
+    args = ([cli, "funnel", "--bg", "--https=443", f"http://127.0.0.1:{port}"] if enable
+            else [cli, "funnel", "--https=443", "off"])
+    out = subprocess.run(args, capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip() or out.stdout.strip() or "tailscale funnel не вдався")
+    return f"https://{name}"
+
+
 @dataclass
 class Peer:
     ip: str

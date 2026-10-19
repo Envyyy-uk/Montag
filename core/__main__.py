@@ -17,6 +17,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("init", help="створити папки і базу даних")
     sub.add_parser("gemini-ping", help="один крихітний текстовий запит: перевірка ключа, моделі й ціни")
     sub.add_parser("tailscale-cert", help="HTTPS-сертифікат для <машина>.<tailnet>.ts.net (tailscale cert)")
+    fn = sub.add_parser("tailscale-funnel", help="вивести в інтернет лише MCP для Claude з iPhone (on/off)")
+    fn.add_argument("state", choices=["on", "off"])
     args = parser.parse_args(argv)
 
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -40,6 +42,22 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Сертифікат готовий. Адреса для iPhone: https://{name}:{settings.https_port}/")
         print("Сертифікат діє 90 днів — повтори цю команду раз на 2 місяці.")
+        return 0
+    if args.cmd == "tailscale-funnel":
+        from core import tailscale
+        if args.state == "on" and not settings.mcp_remote:
+            print("Спершу в .env: MCP_REMOTE=true і ACCESS_PIN з 6+ цифр")
+            return 1
+        try:
+            url = tailscale.funnel(settings.mcp_http_port, args.state == "on")
+        except RuntimeError as exc:
+            print(f"Не вдалося: {exc}")
+            return 1
+        if args.state == "on":
+            print(f"Funnel увімкнено. У Claude: Settings → Connectors → Add custom connector → {url}/mcp")
+            print("В інтернеті доступний лише MCP (вхід за PIN); застосунок і API — тільки в tailnet.")
+        else:
+            print("Funnel вимкнено — MCP з інтернету більше не доступний.")
         return 0
     conn = open_db(settings.database_path)
     version = conn.execute("PRAGMA user_version").fetchone()[0]

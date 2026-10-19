@@ -33,8 +33,8 @@ def _money(v: float | None) -> str:
     return f"${(v or 0):.2f}"
 
 
-def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = None) -> MCPServer:
-    mcp = MCPServer("Автомонтаж", instructions=INSTRUCTIONS)
+def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = None, **server_kw) -> MCPServer:
+    mcp = MCPServer("Автомонтаж", instructions=INSTRUCTIONS, **server_kw)
     codes = codes or Codes()
 
     async def _latest(project_id: int, kind: str) -> dict:

@@ -9,7 +9,7 @@ import ipaddress
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     access_pin: SecretStr = SecretStr("")
     upload_direct_min_mbps: float = Field(20.0, ge=0)  # нижче — краще через Google Drive
     mcp_spend_limit_usd: float = Field(2.0, ge=0)      # більше за раз через Claude не підтвердити — лише в PWA
+    # MCP для Claude з iPhone: окремий слухач на 127.0.0.1, в інтернет його виводить лише Tailscale Funnel
+    mcp_remote: bool = False
+    mcp_http_port: int = Field(8766, ge=1, le=65535)
+    mcp_public_url: str = ""            # порожньо — https://<машина>.<tailnet>.ts.net з Tailscale
 
     # Gemini і бюджет
     gemini_api_key: SecretStr = SecretStr("")
@@ -117,6 +121,13 @@ class Settings(BaseSettings):
         if pin and (len(pin) < 4 or not pin.isdigit()):
             raise ValueError("ACCESS_PIN — щонайменше 4 цифри")
         return v
+
+    @model_validator(mode="after")
+    def _remote_mcp_needs_strong_pin(self):
+        # MCP з iPhone відкритий в інтернет через Funnel — 4 цифри замало
+        if self.mcp_remote and len(self.access_pin.get_secret_value()) < 6:
+            raise ValueError("MCP_REMOTE=true потребує ACCESS_PIN щонайменше з 6 цифр")
+        return self
 
     def resolve(self, path: Path) -> Path:
         """Відносні шляхи — від кореня репозиторію."""

@@ -246,6 +246,25 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE taste_rules ADD COLUMN origin TEXT NOT NULL DEFAULT 'pwa';
     """,
+    # 11 — доступ Claude з iPhone: OAuth-клієнти й токени (Спринт 14)
+    """
+    CREATE TABLE mcp_clients (
+        client_id     TEXT PRIMARY KEY,
+        data          TEXT NOT NULL,
+        authorized_at TEXT,
+        last_used_at  TEXT,
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE TABLE mcp_tokens (
+        token_hash  TEXT PRIMARY KEY,
+        kind        TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
+        client_id   TEXT NOT NULL REFERENCES mcp_clients(client_id) ON DELETE CASCADE,
+        scopes      TEXT NOT NULL DEFAULT '[]',
+        resource    TEXT,
+        expires_at  INTEGER NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    """,
 ]
 
 
