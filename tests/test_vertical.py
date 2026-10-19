@@ -114,3 +114,10 @@ def test_moment_buildup_is_continuous_footage():
     p = m.pieces[0]
     assert p.src_in + p.duration == pytest.approx(39 + 1.5)  # пік 36–39 + 1,5 с після
     assert p.duration == pytest.approx(20)
+
+
+def test_moments_skip_stubby_reels_when_material_runs_out():
+    small = [s for s in _pool() if s.media_id == 1][:9]  # 27 с матеріалу на 3 ролики по 15+
+    ms = moments.choose(small, 3, 15)
+    assert ms and all(m.duration >= 14.5 for m in ms)
+    assert len(moments.choose(small[:3], 3, 20)) == 1  # зовсім мало — один ролик, а не нуль

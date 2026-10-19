@@ -50,3 +50,8 @@ class Codes:
         del self._items[code.strip()]
         self._wrong = 0
         return p
+
+    def restore(self, code: str, pending: Pending) -> None:
+        """Дія не відбулася з причин, не пов'язаних з кодом (напр. іде рендер) — код знову чинний до кінця строку."""
+        if pending.expires > self._clock():
+            self._items[code.strip()] = pending

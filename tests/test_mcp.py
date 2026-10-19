@@ -208,3 +208,25 @@ def test_codes_expire_and_lock():
             c.take("nope", "delete", 6)
     with pytest.raises(CodeError):
         c.take(code, "delete", 6)  # після 5 хибних спроб усі коди анульовано
+
+
+def test_rerender_after_settings_change_while_running(env):
+    conn = env["conn"]
+    first = queue.enqueue(conn, "vertical_project", {"project_id": 1}, project_id=None)
+    conn.execute("UPDATE jobs SET status = 'running' WHERE id = ?", (first,))
+    assert queue.enqueue(conn, "vertical_project", {"project_id": 1}) == first  # звичайний dedupe
+    again = queue.enqueue(conn, "vertical_project", {"project_id": 1}, rerun_if_running=True)
+    assert again != first
+    assert queue.enqueue(conn, "vertical_project", {"project_id": 1}, rerun_if_running=True) == again
+
+
+def test_delete_code_survives_busy_refusal(env, clip):
+    conn = env["conn"]
+    code = text(call(env, "prepare_delete", {"edit_id": clip["eid"]})).split('code="')[1].split('"')[0]
+    jid = queue.enqueue(conn, "export_davinci", {"edit_id": clip["eid"]}, project_id=clip["pid"])
+    conn.commit()
+    res = call(env, "delete_renders", {"edit_id": clip["eid"], "code": code})
+    assert res.is_error and "спробуй пізніше" in text(res)
+    conn.execute("UPDATE jobs SET status = 'done' WHERE id = ?", (jid,))
+    conn.commit()
+    assert not call(env, "delete_renders", {"edit_id": clip["eid"], "code": code}).is_error

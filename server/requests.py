@@ -130,9 +130,9 @@ def apply_here(conn, settings: Settings, project, changes: dict) -> list[str]:
         queue.enqueue(conn, "score_project", {"project_id": project["id"]}, project_id=project["id"])
         return ["score_project"]
     kinds = ["edit_project"]
-    queue.enqueue(conn, "edit_project", {"project_id": project["id"]}, project_id=project["id"])
+    queue.enqueue(conn, "edit_project", {"project_id": project["id"]}, project_id=project["id"], rerun_if_running=True)
     if ch_mod.touches_vertical(changes):
-        queue.enqueue(conn, "vertical_project", {"project_id": project["id"]}, project_id=project["id"])
+        queue.enqueue(conn, "vertical_project", {"project_id": project["id"]}, project_id=project["id"], rerun_if_running=True)
         kinds.append("vertical_project")
     return kinds
 
@@ -269,8 +269,8 @@ def answer_suggestion(project_id: int, body: Suggestion, conn: sqlite3.Connectio
     except StyleError as exc:
         raise HTTPException(404, str(exc)) from exc
     conn.execute("UPDATE projects SET style_id = ? WHERE id = ?", (body.style_id, project_id))
-    queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id)
-    queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id)
+    queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id, rerun_if_running=True)
+    queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id, rerun_if_running=True)
     return {"style_id": body.style_id, "rerender": True}
 
 

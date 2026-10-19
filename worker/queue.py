@@ -16,14 +16,17 @@ KEEP_STATUS = "keep"
 
 
 def enqueue(conn: sqlite3.Connection, kind: str, payload: dict[str, Any] | None = None,
-            project_id: int | None = None, dedupe: bool = True, delay_seconds: float = 0) -> int:
+            project_id: int | None = None, dedupe: bool = True, delay_seconds: float = 0,
+            rerun_if_running: bool = False) -> int:
     """Додає завдання. З `dedupe` не дублює вже заплановане таке саме.
+    `rerun_if_running` — якщо таке саме вже виконується зі старими налаштуваннями, поставити ще одне після нього.
     `delay_seconds` — не брати раніше (опитування batch-ів)."""
     body = json.dumps(payload or {}, sort_keys=True, ensure_ascii=False)
     if dedupe:
+        statuses = "('queued', 'awaiting_confirm')" if rerun_if_running else "('queued', 'running', 'awaiting_confirm')"
         row = conn.execute(
             "SELECT id FROM jobs WHERE kind = ? AND payload = ? AND project_id IS ?"
-            " AND status IN ('queued', 'running', 'awaiting_confirm')",
+            f" AND status IN {statuses}",
             (kind, body, project_id)).fetchone()
         if row:
             return row["id"]

@@ -126,6 +126,10 @@ def build_moment(peak: Shot, pool: list[Shot], used: set, length: float) -> Mome
 def choose(pool: list[Shot], count: int = 3, length: float = 20.0,
            tag_weights: dict[str, float] | None = None) -> list[Moment]:
     length = min(MAX_LEN, max(MIN_LEN, length))
+    # матеріалу на всі ролики заданої довжини не вистачає — коротшаємо до 15 с, щоб влізло більше повноцінних
+    total = sum(s.length for s in pool)
+    if count > 1 and total < count * length:
+        length = max(MIN_LEN, min(length, 0.9 * total / count))
     used: set = set()
     moments: list[Moment] = []
     sep = 1 / (2 * max(1, count))
@@ -143,4 +147,8 @@ def choose(pool: list[Shot], count: int = 3, length: float = 20.0,
             break
         if _key(peak) not in used:
             moments.append(build_moment(peak, pool, used, length))
-    return sorted(moments, key=lambda m: m.peak.chrono)
+    # коли матеріал вичерпано, хвостові моменти виходять куцими — краще менше роликів, ніж ролик на 7 с
+    full = [m for m in moments if m.duration >= MIN_LEN - 0.5]
+    if not full and moments:
+        full = [max(moments, key=lambda m: m.duration)]
+    return sorted(full, key=lambda m: m.peak.chrono)

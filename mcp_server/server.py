@@ -237,9 +237,13 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
     async def delete_renders(edit_id: int, code: str) -> dict:
         """Крок 2 з 2: видаляє рендери версії кодом з prepare_delete (лише після згоди людини)."""
         try:
-            codes.take(code, "delete", edit_id)
+            pending = codes.take(code, "delete", edit_id)
         except CodeError as exc:
             raise ToolError(str(exc)) from exc
-        return await api.delete(f"/api/edits/{edit_id}")
+        try:
+            return await api.delete(f"/api/edits/{edit_id}")
+        except ToolError:
+            codes.restore(code, pending)  # напр. іде рендер — той самий код спрацює пізніше
+            raise
 
     return mcp

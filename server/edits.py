@@ -134,7 +134,7 @@ def put_clip_settings(project_id: int, body: ClipParams, conn: sqlite3.Connectio
 def reedit(project_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
     """Перемонтаж на кешованих оцінках — без запитів у Gemini."""
     _project(conn, project_id)
-    return {"job_id": queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id)}
+    return {"job_id": queue.enqueue(conn, "edit_project", {"project_id": project_id}, project_id=project_id, rerun_if_running=True)}
 
 
 @router.get("/projects/{project_id}/vertical-settings")
@@ -157,7 +157,7 @@ def put_vertical_settings(project_id: int, body: VerticalParams, conn: sqlite3.C
 def make_verticals(project_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
     """Перемонтаж вертикалей на кешованих оцінках."""
     _project(conn, project_id)
-    return {"job_id": queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id)}
+    return {"job_id": queue.enqueue(conn, "vertical_project", {"project_id": project_id}, project_id=project_id, rerun_if_running=True)}
 
 
 @router.get("/edits/{edit_id}/reels/{n}")
