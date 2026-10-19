@@ -38,6 +38,7 @@ class ClipParams(BaseModel):
     excluded: list[list[float]] | None = None
     transitions: bool | None = None
     disabled_transitions: list[str] | None = None
+    style_level: int | None = Field(None, ge=1, le=3)
     reset_bounds: bool = False
 
 
@@ -170,3 +171,58 @@ def reel(edit_id: int, n: int, conn: sqlite3.Connection = Depends(db),
         raise HTTPException(404, "Немає такого ролика")
     path = settings.library_path / reels[n - 1]["path"]
     return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+def _sheet_for(path, vertical: bool = False):
+    from render.contact import contact_sheet
+    from render.ffmpeg import FFmpegError
+    if not path.exists():
+        raise HTTPException(404, "Готового відео немає")
+    try:
+        grid = {"cols": 6, "rows": 2, "tile_width": 200} if vertical else {}  # 9:16 — ширша сітка, нижча картинка
+        return FileResponse(contact_sheet(path, path.with_name(path.stem + "_sheet.jpg"), **grid), media_type="image/jpeg")
+    except FFmpegError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@router.get("/edits/{edit_id}/sheet.jpg")
+def sheet(edit_id: int, n: int = 1, conn: sqlite3.Connection = Depends(db),
+          settings: Settings = Depends(settings_dep)) -> FileResponse:
+    """Аркуш кадрів готового кліпу (або n-го вертикального ролика)."""
+    row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Монтаж не знайдено")
+    if row["kind"] == "vertical":
+        reels = json.loads(row["summary"] or "{}").get("reels", [])
+        if not 1 <= n <= len(reels):
+            raise HTTPException(404, "Такого ролика немає")
+        return _sheet_for(settings.library_path / reels[n - 1]["path"], vertical=True)
+    if not row["export_path"]:
+        raise HTTPException(404, "Готового відео немає")
+    return _sheet_for(settings.library_path / row["export_path"])
+
+
+@router.get("/edits/{edit_id}/delete-plan")
+def delete_plan(edit_id: int, conn: sqlite3.Connection = Depends(db),
+                settings: Settings = Depends(settings_dep)) -> dict:
+    """Що саме буде видалено (лише рендери цієї версії; оригінали лишаються)."""
+    from edit.cleanup import CleanupError, plan
+    try:
+        pl = plan(conn, settings, edit_id)
+    except CleanupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"edit_id": edit_id, "project_id": pl.project_id, "label": pl.label,
+            "paths": pl.describe(settings.library_path), "mb": round(pl.bytes / 1e6, 1)}
+
+
+@router.delete("/edits/{edit_id}")
+def delete_edit(edit_id: int, conn: sqlite3.Connection = Depends(db),
+                settings: Settings = Depends(settings_dep)) -> dict:
+    from edit.cleanup import CleanupError, delete
+    if conn.execute("SELECT 1 FROM edits WHERE id = ?", (edit_id,)).fetchone() is None:
+        raise HTTPException(404, "Монтаж не знайдено")
+    try:
+        pl = delete(conn, settings, edit_id)
+    except CleanupError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"deleted": edit_id, "label": pl.label, "paths": len(pl.files) + len(pl.dirs)}

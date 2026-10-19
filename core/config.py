@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     tls_key_file: Path = Path("library/tls/key.pem")
     access_pin: SecretStr = SecretStr("")
     upload_direct_min_mbps: float = Field(20.0, ge=0)  # нижче — краще через Google Drive
+    mcp_spend_limit_usd: float = Field(2.0, ge=0)      # більше за раз через Claude не підтвердити — лише в PWA
 
     # Gemini і бюджет
     gemini_api_key: SecretStr = SecretStr("")

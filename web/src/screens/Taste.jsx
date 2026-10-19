@@ -44,6 +44,11 @@ export default function Taste() {
         <div className="label">Правила «назавжди»</div>
         {t.rules.length === 0 && <div className="muted">Поки немає. Вони з'являються, коли на правку відповідаєш «Назавжди».</div>}
         {t.rules.map((r) => <Rule key={r.id} r={r} act={act} />)}
+        {t.rules.some((r) => r.origin === "mcp") && (
+          <button className="pill small" onClick={() => act(async () => {
+            for (const r of t.rules.filter((x) => x.origin === "mcp")) await api.del(`/api/taste/rules/${r.id}`);
+          }, "Правила від Claude відкочено")}>↶ Відкотити всі правила від Claude</button>
+        )}
       </Glass>
     </div>
   );
@@ -55,7 +60,7 @@ function Rule({ r, act }) {
   return (
     <div className="row" style={{ opacity: r.active ? 1 : 0.45 }}>
       {edit ? <input className="field grow" value={text} onChange={(e) => setText(e.target.value)} />
-        : <div className="grow">{r.text}</div>}
+        : <div className="grow">{r.text}{r.origin === "mcp" && <span className="badge run" style={{ marginLeft: 8, whiteSpace: "nowrap" }}>через Claude</span>}</div>}
       {edit ? <button className="pill small primary" onClick={() => act(() => api.put(`/api/taste/rules/${r.id}`, { text }), "Оновлено").then(() => setEdit(false))}>✓</button>
         : <button className="pill small" onClick={() => setEdit(true)}>✎</button>}
       <button className="pill small" onClick={() => act(() => api.put(`/api/taste/rules/${r.id}`, { active: !r.active }), r.active ? "Вимкнено" : "Увімкнено")}>{r.active ? "вимк" : "увімк"}</button>

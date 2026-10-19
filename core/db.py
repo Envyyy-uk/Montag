@@ -242,6 +242,10 @@ MIGRATIONS: list[str] = [
         created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
     """,
+    # 10 — звідки правило смаку: PWA чи MCP (Спринт 13)
+    """
+    ALTER TABLE taste_rules ADD COLUMN origin TEXT NOT NULL DEFAULT 'pwa';
+    """,
 ]
 
 

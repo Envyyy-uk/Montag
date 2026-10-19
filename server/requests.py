@@ -6,7 +6,7 @@ import json
 import re
 import sqlite3
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from analysis.llm import LLMUnavailable
@@ -139,7 +139,8 @@ def apply_here(conn, settings: Settings, project, changes: dict) -> list[str]:
 
 @router.post("/requests/{request_id}/apply")
 def apply_request(request_id: int, body: Scope, conn: sqlite3.Connection = Depends(db),
-                  settings: Settings = Depends(settings_dep)) -> dict:
+                  settings: Settings = Depends(settings_dep),
+                  x_am_origin: str | None = Header(None)) -> dict:
     req = conn.execute("SELECT * FROM edit_requests WHERE id = ?", (request_id,)).fetchone()
     if req is None:
         raise HTTPException(404, "Правку не знайдено")
@@ -154,8 +155,9 @@ def apply_request(request_id: int, body: Scope, conn: sqlite3.Connection = Depen
             style, level = style_store.resolve_for_project(conn, settings, project)
             style_store.approve(conn, style.id, max(1, min(3, level + int(rule.pop("style_level_delta")))))
         text = changes.get("rule_text") or req["text"]
-        rule_id = conn.execute("INSERT INTO taste_rules(text, changes, request_id) VALUES (?, ?, ?)",
-                               (text, json.dumps(rule, ensure_ascii=False), request_id)).lastrowid
+        origin = "mcp" if x_am_origin == "mcp" else "pwa"  # правила від Claude видно окремо — їх легко відкотити
+        rule_id = conn.execute("INSERT INTO taste_rules(text, changes, request_id, origin) VALUES (?, ?, ?, ?)",
+                               (text, json.dumps(rule, ensure_ascii=False), request_id, origin)).lastrowid
         ch_mod.sync_taste_md(conn, settings.taste_path)
         # правило вже діє глобально; у проєкт пишемо лише те, що правило не покриває
         project_only = {k: v for k, v in changes.items() if k in ("exclude_at", "length", "track_start", "track_end")}
@@ -188,7 +190,7 @@ def get_taste(conn: sqlite3.Connection = Depends(db), settings: Settings = Depen
     ex = settings.library_path / "taste"
     count = {k: len(list((ex / k).glob("*"))) if (ex / k).is_dir() else 0 for k in ("take", "skip")}
     rules = [{"id": r["id"], "text": r["text"], "active": bool(r["active"]), "changes": json.loads(r["changes"]),
-              "created_at": r["created_at"]} for r in conn.execute("SELECT * FROM taste_rules ORDER BY id")]
+              "origin": r["origin"], "created_at": r["created_at"]} for r in conn.execute("SELECT * FROM taste_rules ORDER BY id")]
     return {"instruction": _split_taste(text), "rules": rules, "examples": count, "first_run": not path.exists()}
 
 
