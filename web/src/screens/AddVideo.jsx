@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import * as tus from "tus-js-client";
 import { api, driveLinks, measureUpload } from "../api.js";
 import { ask, Bar, Glass, Toast } from "../components/ui.jsx";
+import { addUploads, resumeUploads, useUploads } from "../uploads.js";
 
 export default function AddVideo() {
   const nav = useNavigate();
@@ -10,7 +10,6 @@ export default function AddVideo() {
   const [pid, setPid] = useState("");
   const [name, setName] = useState("");
   const [route, setRoute] = useState(null);
-  const [files, setFiles] = useState([]);   // {file, progress, state}
   const [toast, setToast] = useState("");
   const input = useRef(null);
 
@@ -43,70 +42,11 @@ export default function AddVideo() {
     } catch (e) { setToast(e.message); }
   };
 
-  // Черга завантажень: по 2 файли одночасно, після обриву — довгі повтори й кнопка «Продовжити».
-  const queueRef = useRef([]);
-  const [, bump] = useState(0);
-  const wake = useRef(null);
-  const PARALLEL = 2;
-  const sync = () => { setFiles([...queueRef.current]); bump((n) => n + 1); };
-  const update = (it, patch) => { Object.assign(it, patch); sync(); };
-
-  const keepAwake = async (on) => {
-    try {
-      if (on && !wake.current && navigator.wakeLock) wake.current = await navigator.wakeLock.request("screen");
-      if (!on && wake.current) { await wake.current.release(); wake.current = null; }
-    } catch (_) { /* екран усе одно може згаснути — тоді докачаємо після розблокування */ }
-  };
-
-  const pump = () => {
-    const q = queueRef.current;
-    let active = q.filter((x) => x.state === "up").length;
-    for (const it of q) {
-      if (active >= PARALLEL) break;
-      if (it.state !== "wait") continue;
-      active += 1;
-      startOne(it);
-    }
-    keepAwake(q.some((x) => x.state === "up" || x.state === "wait"));
-  };
-
-  const startOne = (it) => {
-    update(it, { state: "up", error: null });
-    const up = new tus.Upload(it.file, {
-      endpoint: "/api/uploads",
-      // обрив зв'язку (блокування телефона, перезапуск програми) — пробуємо ~5 хв, з того самого місця
-      retryDelays: [0, 1000, 3000, 5000, 10000, 15000, 30000, 30000, 60000, 60000, 60000],
-      chunkSize: 16 * 1024 * 1024,
-      metadata: { filename: it.file.name, project_id: it.pid },
-      onProgress: (sent, total) => update(it, { progress: sent / total }),
-      onSuccess: () => { update(it, { progress: 1, state: "done" }); pump(); },
-      onError: () => {
-        update(it, { state: "error", error: "Зв'язок з ноутбуком обірвався. «Продовжити» — докачає з того самого місця." });
-        pump();
-      },
-    });
-    it.tus = up;
-    up.findPreviousUploads().then((prev) => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); });
-  };
-
-  const upload = (list) => {
-    queueRef.current.push(...Array.from(list).map((file) => ({ file, pid, progress: 0, state: "wait" })));
-    sync();
-    pump();
-  };
-  const resume = (only) => {
-    for (const it of queueRef.current) if (it.state === "error" && (!only || it === only)) it.state = "wait";
-    sync();
-    pump();
-  };
-  useEffect(() => {
-    // повернувся в застосунок або з'явилась мережа — продовжуємо обірвані самі
-    const again = () => { if (document.visibilityState === "visible") resume(); };
-    window.addEventListener("online", again);
-    document.addEventListener("visibilitychange", again);
-    return () => { window.removeEventListener("online", again); document.removeEventListener("visibilitychange", again); keepAwake(false); };
-  }, []);
+  const uploads = useUploads();
+  const files = uploads.list.filter((f) => f.pid === pid);
   const failed = files.filter((f) => f.state === "error").length;
+  const upload = (list) => addUploads(list, pid);
+  const resume = (only) => resumeUploads(only);
   const allDone = files.length > 0 && files.every((f) => f.state === "done");
 
   return (

@@ -161,3 +161,5 @@ table.hist td.r { text-align: right; font-family: var(--mono); }
 .ask { width: min(360px, 100%); box-sizing: border-box; }
 .versions-head { width: 100%; background: none; border: 0; color: inherit; padding: 10px 0; font: inherit; text-align: left; }
 .version-row { border-top: 1px solid rgba(255, 255, 255, .07); padding-left: 10px; }
+.upload-pill { position: fixed; left: 50%; transform: translateX(-50%); z-index: 40;
+  bottom: calc(env(safe-area-inset-bottom) + 96px); padding: 8px 16px; border-radius: 99px; font-size: 13px; white-space: nowrap; }

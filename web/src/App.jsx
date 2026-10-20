@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useMatch } from "react-router-dom";
 import { api, driveLinks } from "./api.js";
 import { AskHost, Backdrop, useTiltGlare } from "./components/ui.jsx";
+import { useUploads } from "./uploads.js";
 import Queue from "./screens/Queue.jsx";
 import Project from "./screens/Project.jsx";
 import AddVideo from "./screens/AddVideo.jsx";
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/budget" element={<Budget />} />
         </Routes>
       </main>
+      <UploadPill />
       <nav className="glass strong tabbar" aria-label="Розділи">
         <NavLink to="/" end><span className="ico">▤</span>Черга</NavLink>
         <NavLink to="/styles"><span className="ico">◐</span>Стилі</NavLink>
@@ -93,5 +95,16 @@ function Offline() {
         {links.length === 0 && <a className="pill small" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noreferrer">Відкрити Google Drive</a>}
       </div>
     </div>
+  );
+}
+
+/** Над нижнім меню: скільки файлів вантажиться — видно з будь-якої вкладки. */
+function UploadPill() {
+  const u = useUploads();
+  if (u.total === 0 || (u.active === 0 && u.failed === 0)) return null;
+  return (
+    <NavLink to="/add" className="glass strong upload-pill">
+      {u.active > 0 ? `⬆ Завантаження ${u.done}/${u.total}` : `⚠ Обрив: ${u.failed} — натисни, щоб продовжити`}
+    </NavLink>
   );
 }
