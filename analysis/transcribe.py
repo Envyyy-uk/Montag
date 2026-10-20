@@ -25,10 +25,13 @@ def _device() -> tuple[str, str]:
     return "cpu", "int8"
 
 
+_cuda_broken = False  # на Windows без бібліотек cuBLAS/cuDNN CUDA «є», але не працює — тоді лише CPU
+
+
 def get_model(name: str):
     from faster_whisper import WhisperModel
 
-    device, compute = _device()
+    device, compute = ("cpu", "int8") if _cuda_broken else _device()
     key = (name, device)
     with _model_lock:
         if key not in _models:
@@ -37,10 +40,25 @@ def get_model(name: str):
         return _models[key]
 
 
-def transcribe(audio_16k: np.ndarray, model_name: str = "small", language: str = "", model=None) -> dict:
-    model = model or get_model(model_name)
+def _run(model, audio_16k, language):
     segments, info = model.transcribe(audio_16k, language=language or None, vad_filter=True,
                                       word_timestamps=True, condition_on_previous_text=False)
+    return list(segments), info  # сегменти лінивi — помилка CUDA вилазить саме тут
+
+
+def transcribe(audio_16k: np.ndarray, model_name: str = "small", language: str = "", model=None) -> dict:
+    global _cuda_broken
+    if model is not None:
+        segments, info = _run(model, audio_16k, language)
+    else:
+        try:
+            segments, info = _run(get_model(model_name), audio_16k, language)
+        except (RuntimeError, OSError) as exc:
+            if _cuda_broken or not any(k in str(exc).lower() for k in ("cuda", "cublas", "cudnn", ".dll")):
+                raise
+            log.warning("whisper на GPU не запустився (%s) — далі на процесорі", str(exc)[:200])
+            _cuda_broken = True
+            segments, info = _run(get_model(model_name), audio_16k, language)
     out = []
     for s in segments:
         out.append({

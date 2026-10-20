@@ -1,5 +1,7 @@
 # Автомонтаж (auto-editor)
 
+> **Запуск з нуля на Windows — покроково: [docs/SETUP_WINDOWS.md](docs/SETUP_WINDOWS.md)**
+
 Особиста програма, яка з кількох сирих відео робить майже готовий монтаж: кліп під музику і 3 вертикальні ролики.
 Працює локально на ноутбуці (Windows 11, NVIDIA RTX). Платний лише AI-аналіз кадрів (Gemini Flash) у межах місячного ліміту.
 
@@ -248,8 +250,7 @@ schtasks /Create /TN "Автомонтаж" /SC ONLOGON /RL LIMITED ^
   "mcpServers": {
     "avtomontazh": {
       "command": "C:\\Montag\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "mcp_server"],
-      "cwd": "C:\\Montag"
+      "args": ["-m", "mcp_server"]
     }
   }
 }
