@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtDate, fmtTime, JOB_LABELS, money } from "../api.js";
-import { Glass, Toast, usePoll, VhsScreen } from "../components/ui.jsx";
+import { ask, Glass, Toast, usePoll, VhsScreen } from "../components/ui.jsx";
 
 export default function Project() {
   const { id } = useParams();
@@ -59,7 +59,7 @@ export default function Project() {
       )}
 
       {ov.clip == null && busy.length === 0 && (
-        <button className="pill rec" onClick={() => act(() => api.post(`/api/projects/${id}/edit`), "Монтую")}>● Монтувати</button>
+        <button className="pill rec" onClick={async () => { if (await ask("Почати монтаж? Якщо є ключ Gemini — спершу AI-оцінка кадрів (покаже ціну, якщо більше $1).")) act(() => api.post(`/api/projects/${id}/edit`), "Монтую"); }}>● Монтувати</button>
       )}
 
       {ov.tracks > 0 && <EnergyStrip id={id} onSaved={(m) => { setToast(m); refresh(); }} />}
@@ -83,7 +83,7 @@ export default function Project() {
               );
             })}
           </div>
-          <button className="pill small" onClick={() => act(() => api.post(`/api/projects/${id}/reedit`), "Перемонтовую з новими налаштуваннями")}>Перемонтувати</button>
+          <button className="pill small" onClick={async () => { if (await ask("Перемонтувати кліп з цими налаштуваннями?")) act(() => api.post(`/api/projects/${id}/reedit`), "Перемонтовую з новими налаштуваннями"); }}>Перемонтувати</button>
         </Glass>
       )}
 
@@ -207,6 +207,7 @@ function EnergyStrip({ id, onSaved }) {
   };
   const apply = async () => {
     audio.current?.pause(); setPlaying(false);
+    if (!(await ask(`Перемонтувати кліп під шматок ${fmtTime(win.start)}–${fmtTime(win.end)}?`))) return;
     await api.put(`/api/projects/${id}/clip-settings`, { track_start: win.start, track_end: win.end });
     await api.post(`/api/projects/${id}/reedit`);
     setSaved(win);
@@ -264,49 +265,55 @@ function FormatBox({ id, ov, act }) {
         ))}
       </div>
       <div className="faint" style={{ fontSize: 12 }}>Авто: обрізає за обличчями, а якщо обрізати не вийде — кладе на розмитий фон.</div>
-      {changed && <button className="pill small primary" onClick={() => act(() => api.post(`/api/projects/${id}/reedit`), "Перемонтовую в новому форматі")}>Перемонтувати в {p.aspect}</button>}
+      {changed && <button className="pill small primary" onClick={async () => { if (await ask(`Перемонтувати кліп у форматі ${p.aspect}?`)) act(() => api.post(`/api/projects/${id}/reedit`), "Перемонтовую в новому форматі"); }}>Перемонтувати в {p.aspect}</button>}
     </Glass>
   );
 }
 
-/** Усі версії: переглянути, скачати 1080p / 720p, зробити основною. */
+/** Усі версії: дві розкривашки (кліп / вертикалі), кожна версія — один рядок, дії — у меню «⋯». */
 function Versions({ id, onChange }) {
   const [list, setList] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState({});      // яка група розгорнута
+  const [menu, setMenu] = useState(null);    // у якої версії відкрите «⋯»
   const load = () => api.get(`/api/projects/${id}/edits`).then(setList).catch(() => {});
-  useEffect(() => { if (open) load(); }, [open, id]);
+  useEffect(() => { load(); }, [id]);
+  if (!list || list.length === 0) return null;
   const main = async (e) => {
-    try { await api.post(`/api/edits/${e.id}/main`); onChange(`v${e.version} тепер основна — правки підуть від неї`); load(); }
+    if (!(await ask(`Зробити v${e.version} основною? Наступні правки підуть від її налаштувань.`))) return;
+    try { await api.post(`/api/edits/${e.id}/main`); onChange(`v${e.version} тепер основна`); setMenu(null); load(); }
     catch (err) { onChange(err.message); }
   };
+  const groups = [["clip", "Кліп"], ["vertical", "Вертикалі"]].map(([k, name]) => [k, name, list.filter((e) => e.kind === k)]);
   return (
-    <Glass className="stack">
-      <button className="row spread" style={{ background: "none", border: 0, color: "inherit", padding: 0 }} onClick={() => setOpen(!open)}>
-        <span className="label">Усі версії</span><span className="faint">{open ? "▴" : "▾"}</span>
-      </button>
-      {open && !list && <div className="muted">Завантаження…</div>}
-      {open && list && list.length === 0 && <div className="muted">Версій ще немає.</div>}
-      {open && list && list.map((e) => (
-        <div key={e.id} className="stack" style={{ gap: 6, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,.08)" }}>
-          <div className="row spread">
-            <div>
-              <b>{e.kind === "clip" ? "Кліп" : "Вертикалі"} v{e.version}</b> {e.main && <span className="badge done">основна</span>}
-              <div className="faint mono" style={{ fontSize: 11 }}>
-                {e.created_at.slice(5, 16).replace("T", " ")} · {e.aspect}
-                {e.kind === "clip" ? ` · ${fmtTime(e.summary.duration || 0)} · ${e.summary.cuts ?? "?"} склейок · ${e.summary.style || ""}`
-                  : ` · ${(e.summary.reels || []).length} ролики`}
-              </div>
+    <Glass className="stack" style={{ gap: 4 }}>
+      <div className="label">Версії</div>
+      {groups.filter(([, , items]) => items.length).map(([k, name, items]) => (
+        <div key={k}>
+          <button className="row spread versions-head" onClick={() => setOpen({ ...open, [k]: !open[k] })}>
+            <span>{name} <span className="faint">· {items.length}</span></span>
+            <span className="faint">{open[k] ? "▴" : "▾"}</span>
+          </button>
+          {open[k] && items.map((e) => (
+            <div key={e.id} className="version-row">
+              <button className="row spread versions-head" onClick={() => setMenu(menu === e.id ? null : e.id)}>
+                <span>v{e.version} {e.main && <span className="badge done">основна</span>}
+                  <span className="faint mono" style={{ fontSize: 11, marginLeft: 6 }}>{e.created_at.slice(5, 16).replace("T", " ")} · {e.aspect}</span>
+                </span>
+                <span className="faint">⋯</span>
+              </button>
+              {menu === e.id && (
+                <div className="row wrap" style={{ padding: "4px 0 8px" }}>
+                  {k === "clip" && e.files.preview && <a className="pill small" href={`/api/edits/${e.id}/preview`} target="_blank" rel="noreferrer">▶</a>}
+                  {k === "clip" && e.files.video && <a className="pill small" href={`/api/edits/${e.id}/video`} download>⬇ 1080p</a>}
+                  {k === "clip" && e.files.preview && <a className="pill small" href={`/api/edits/${e.id}/preview?download=1`} download>⬇ 720p</a>}
+                  {k === "vertical" && (e.summary.reels || []).map((r, i) => (
+                    <a key={i} className="pill small" href={`/api/edits/${e.id}/reels/${i + 1}`} download>⬇ #{i + 1}</a>
+                  ))}
+                  {!e.main && <button className="pill small" onClick={() => main(e)}>★ Основна</button>}
+                </div>
+              )}
             </div>
-          </div>
-          <div className="row wrap">
-            {e.kind === "clip" && e.files.preview && <a className="pill small" href={`/api/edits/${e.id}/preview`} target="_blank" rel="noreferrer">▶</a>}
-            {e.kind === "clip" && e.files.video && <a className="pill small" href={`/api/edits/${e.id}/video`} download>⬇ 1080p</a>}
-            {e.kind === "clip" && e.files.preview && <a className="pill small" href={`/api/edits/${e.id}/preview?download=1`} download>⬇ 720p</a>}
-            {e.kind === "vertical" && (e.summary.reels || []).map((r, i) => (
-              <a key={i} className="pill small" href={`/api/edits/${e.id}/reels/${i + 1}`} download>⬇ #{i + 1}</a>
-            ))}
-            {!e.main && <button className="pill small" onClick={() => main(e)}>★ Зробити основною</button>}
-          </div>
+          ))}
         </div>
       ))}
     </Glass>

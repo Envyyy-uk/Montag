@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api.js";
-import { Glass, Toast, usePoll, VhsScreen } from "../components/ui.jsx";
+import { ask, Glass, Toast, usePoll, VhsScreen } from "../components/ui.jsx";
 
 const AUDIO = { live: "Живий звук", track: "Під трек", none: "Без музики" };
 const REEL_ASPECTS = { "9:16": "9:16 · Reels, TikTok, Shorts", "4:5": "4:5 · стрічка Instagram", "1:1": "1:1 · квадрат" };
@@ -16,15 +16,19 @@ export default function Verticals() {
 
   const setAudio = async (audio) => {
     await api.put(`/api/projects/${id}/vertical-settings`, { audio });
-    await api.post(`/api/projects/${id}/verticals`);
-    setToast(`${AUDIO[audio]} — перероблюю ролики`);
+    if (await ask(`${AUDIO[audio]}. Переробити ролики зараз?`)) {
+      await api.post(`/api/projects/${id}/verticals`);
+      setToast(`${AUDIO[audio]} — перероблюю ролики`);
+    } else setToast("Збережено — застосується, коли переробиш ролики");
     setOv(await api.get(`/api/projects/${id}/overview`));
   };
 
   const setAspect = async (aspect) => {
     await api.put(`/api/projects/${id}/vertical-settings`, { aspect });
-    await api.post(`/api/projects/${id}/verticals`);
-    setToast(`Формат ${aspect} — перероблюю ролики`);
+    if (await ask(`Формат ${aspect}. Переробити ролики зараз?`)) {
+      await api.post(`/api/projects/${id}/verticals`);
+      setToast(`Формат ${aspect} — перероблюю ролики`);
+    } else setToast("Збережено — застосується, коли переробиш ролики");
     setOv(await api.get(`/api/projects/${id}/overview`));
   };
 
@@ -56,6 +60,13 @@ export default function Verticals() {
           ))}
         </div>
       </Glass>
+      {!busy && (
+        <button className="pill small" onClick={async () => {
+          if (!(await ask("Переробити ролики з поточними налаштуваннями?"))) return;
+          await api.post(`/api/projects/${id}/verticals`); setToast("Перероблюю ролики");
+          setOv(await api.get(`/api/projects/${id}/overview`));
+        }}>↻ Переробити ролики</button>
+      )}
       {busy && <VhsScreen message="Роблю вертикалі…" />}
       {!busy && !v && <Glass className="muted">Ролики з'являться після аналізу проєкту.</Glass>}
       {!busy && v && v.summary.reels.map((r, i) => (

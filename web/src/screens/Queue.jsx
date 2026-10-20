@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtDate, JOB_LABELS, money, PROJECT_STATUS } from "../api.js";
-import { Bar, Glass, RecDot, usePoll } from "../components/ui.jsx";
+import { ask, Bar, Glass, RecDot, usePoll } from "../components/ui.jsx";
 
 const STATUS_CLASS = { running: "run", queued: "", awaiting_confirm: "wait", failed: "err", done: "done" };
 const STATUS_TEXT = { running: "іде", queued: "чекає", awaiting_confirm: "підтвердити", failed: "помилка", done: "готово" };
@@ -37,7 +37,7 @@ export default function Queue() {
               <button className="pill small" aria-label="Прибрати з черги" style={{ marginLeft: 8 }}
                 onClick={async () => {
                   const q = j.status === "running" ? "Зупинити це завдання?" : j.status === "failed" ? "Сховати помилку?" : "Скасувати це завдання?";
-                  if (!window.confirm(q)) return;
+                  if (!(await ask(q))) return;
                   try { await api.del(`/api/jobs/${j.id}`); setGone((g) => [...g, j.id]); } catch (e) { alert(e.message); }
                 }}>✕</button>
             </div>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as tus from "tus-js-client";
 import { api, driveLinks, measureUpload } from "../api.js";
-import { Bar, Glass, Toast } from "../components/ui.jsx";
+import { ask, Bar, Glass, Toast } from "../components/ui.jsx";
 
 export default function AddVideo() {
   const nav = useNavigate();
@@ -116,7 +116,7 @@ export default function AddVideo() {
       </Glass>}
 
       {allDone && (
-        <button className="pill rec" onClick={async () => { await api.post(`/api/projects/${pid}/edit`); nav(`/project/${pid}`); }}>
+        <button className="pill rec" onClick={async () => { if (!(await ask("Почати монтаж зараз?"))) return; await api.post(`/api/projects/${pid}/edit`); nav(`/project/${pid}`); }}>
           ● Монтувати
         </button>
       )}

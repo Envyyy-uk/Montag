@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useMatch } from "react-router-dom";
 import { api, driveLinks } from "./api.js";
-import { Backdrop, useTiltGlare } from "./components/ui.jsx";
+import { AskHost, Backdrop, useTiltGlare } from "./components/ui.jsx";
 import Queue from "./screens/Queue.jsx";
 import Project from "./screens/Project.jsx";
 import AddVideo from "./screens/AddVideo.jsx";
@@ -27,6 +27,7 @@ export default function App() {
   return (
     <>
       <Backdrop cover={proj ? `/api/projects/${proj.params.id}/cover.jpg` : null} />
+      <AskHost />
       <div className="scanlines" aria-hidden="true" />
       <main className="app">
         {offline && <Offline />}

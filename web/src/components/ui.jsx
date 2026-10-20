@@ -94,3 +94,32 @@ export function useTiltGlare() {
   }
   return { needsPermission, enable };
 }
+
+/* ---------- Питання «Так / Ні» перед діями, що запускають перемонтаж ---------- */
+let askImpl = null;
+
+/** Повертає Promise<boolean>. */
+export function ask(text, yes = "Так", no = "Ні") {
+  return askImpl ? askImpl(text, yes, no) : Promise.resolve(window.confirm(text));
+}
+
+export function AskHost() {
+  const [q, setQ] = useState(null);
+  useEffect(() => {
+    askImpl = (text, yes, no) => new Promise((resolve) => setQ({ text, yes, no, resolve }));
+    return () => { askImpl = null; };
+  }, []);
+  if (!q) return null;
+  const done = (v) => { q.resolve(v); setQ(null); };
+  return (
+    <div className="ask-backdrop" onClick={() => done(false)} role="dialog" aria-modal="true">
+      <div className="glass strong pad stack ask" onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontSize: 17 }}>{q.text}</div>
+        <div className="row">
+          <button className="pill primary grow" style={{ justifyContent: "center" }} onClick={() => done(true)}>{q.yes}</button>
+          <button className="pill grow" style={{ justifyContent: "center" }} onClick={() => done(false)}>{q.no}</button>
+        </div>
+      </div>
+    </div>
+  );
+}

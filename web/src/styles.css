@@ -154,3 +154,10 @@ textarea.field { min-height: 120px; resize: vertical; line-height: 1.45; }
 table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.hist td { padding: 7px 4px; border-top: 1px solid var(--edge); }
 table.hist td.r { text-align: right; font-family: var(--mono); }
+
+/* питання «Так / Ні» */
+.ask-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px;
+  background: rgba(0, 0, 0, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.ask { width: min(360px, 100%); box-sizing: border-box; }
+.versions-head { width: 100%; background: none; border: 0; color: inherit; padding: 10px 0; font: inherit; text-align: left; }
+.version-row { border-top: 1px solid rgba(255, 255, 255, .07); padding-left: 10px; }
