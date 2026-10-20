@@ -77,7 +77,10 @@ def gemini_ping(settings) -> int:
         print("GEMINI_API_KEY не задано в .env")
         return 1
     res = backend.generate(settings.gemini_model, [{"role": "user", "parts": [{"text": "Відповідай одним словом: ок"}]}],
-                           {"max_output_tokens": 20})
+                           # моделі з «роздумами» витрачають токени до відповіді — 20 замало, буде None
+                           {"max_output_tokens": 400,
+                            **({"thinking_config": {"thinking_level": settings.gemini_thinking_level}}
+                               if settings.gemini_thinking_level else {})})
     if res.error:
         print(f"Помилка: {res.error}")
         return 1
