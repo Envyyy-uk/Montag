@@ -444,7 +444,16 @@ def score_project(conn: sqlite3.Connection, settings: Settings, payload: dict, p
     progress(0.2)
 
     write_local_scores(conn, style, cands)
-    batch = _submit(conn, settings, backend, project, style, taste, plan) if plan else None
+    batch = None
+    if plan:
+        try:
+            batch = _submit(conn, settings, backend, project, style, taste, plan)
+        except Exception as exc:
+            if not batch_refused(exc):
+                raise
+            # Google не дає batch (зазвичай — акаунт без білінгу): ті самі запити по одному, без знижки
+            log.warning("проєкт %s: batch недоступний (%s) — запити по одному", project_id, str(exc)[:200])
+            _run_online(conn, settings, backend, project, style, taste, plan, progress)
     progress(1.0)
     if batch:
         queue.enqueue(conn, "poll_batch", {"batch": batch, "project_id": project_id}, project_id=project_id,
@@ -455,6 +464,37 @@ def score_project(conn: sqlite3.Connection, settings: Settings, payload: dict, p
 
 
 score_project.wants_job_id = True
+
+
+def batch_refused(exc: Exception) -> bool:
+    text = str(exc)
+    return "FAILED_PRECONDITION" in text or "PERMISSION_DENIED" in text or "billing" in text.lower()
+
+
+ONLINE_COST_FACTOR = 2.0  # без batch-знижки 50%
+
+
+def _run_online(conn, settings, backend, project, style, taste, plan: list[Planned], progress: Progress) -> None:
+    """Звичайні (не batch) запити по одному; перед кожним — перевірка бюджету з подвійною ціною."""
+    examples = ensure_example_files(conn, backend, taste) if (taste.take or taste.skip) else []
+    cfg = gen_config(settings)
+    for n, p in enumerate(plan):
+        st = budget.state(conn, settings.monthly_budget_usd, settings.daily_request_limit)
+        est = p.est * ONLINE_COST_FACTOR
+        if st.requests_left < 1 or est > st.available:
+            log.warning("проєкт %s: бюджет не дозволяє решту %s запитів — локальні оцінки", project["id"], len(plan) - n)
+            break
+        uri = ensure_window_file(conn, settings, backend, p.media, p.win_start, p.win_end)
+        segs = [[c.start, c.end] for c in p.items]
+        rid = conn.execute(
+            "INSERT INTO gemini_requests(project_id, media_id, win_start, win_end, style_key, segments, attempt,"
+            " mode, status, est_cost) VALUES (?, ?, ?, ?, ?, ?, ?, 'online', 'submitted', ?)",
+            (project["id"], p.media["id"], p.win_start, p.win_end, style, json.dumps(segs), p.attempt, est)).lastrowid
+        items = [(i, c.start - p.win_start, c.end - p.win_start) for i, c in enumerate(p.items)]
+        res = backend.generate(settings.gemini_model, build_contents(build_prompt(taste, items), uri, examples), cfg)
+        req = conn.execute("SELECT * FROM gemini_requests WHERE id = ?", (rid,)).fetchone()
+        _apply_result(conn, settings, req, res, batch_ok=True)
+        progress(0.2 + 0.8 * (n + 1) / len(plan))
 
 
 def _apply_result(conn, settings, req: sqlite3.Row, res: Result | None, batch_ok: bool) -> bool:

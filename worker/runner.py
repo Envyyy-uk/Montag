@@ -77,6 +77,10 @@ class Worker:
                              lambda p: queue.set_progress(conn, job["id"], p),
                              **({"job_id": job["id"]} if getattr(handler, "wants_job_id", False) else {}))
         except Exception as exc:  # noqa: BLE001 — будь-яка помилка етапу не валить воркер
+            if self._stop.is_set():  # програму зупиняють — це не помилка етапу
+                queue.requeue_interrupted(conn, job["id"])
+                log.info("завдання %s перервано зупинкою — продовжиться після запуску", job["id"])
+                return True
             status = queue.fail(conn, job["id"], f"{exc}\n{traceback.format_exc(limit=5)}")
             log.error("завдання %s впало (%s): %s", job["id"], status, exc)
         else:
@@ -112,5 +116,8 @@ class Worker:
 
     def stop(self, timeout: float = 5) -> None:
         self._stop.set()
+        from render.ffmpeg import terminate_all
+        if terminate_all():
+            log.info("зупиняю рендер — завдання продовжиться після запуску")
         if self._thread:
             self._thread.join(timeout)

@@ -324,3 +324,29 @@ def test_taste_examples_uploaded_once(project):
     request_edit(conn, p["id"])
     drain(settings, conn)
     assert len([u for u in fake.uploads if u[1] == "image/jpeg"]) == 2
+
+
+def test_batch_refused_falls_back_to_online(project):
+    settings, conn, p, fake = project
+
+    def refuse(*a, **kw):
+        raise RuntimeError("400 FAILED_PRECONDITION. {'error': {'code': 400, 'message': 'Precondition check failed.'}}")
+    fake.submit_batch = refuse
+    request_edit(conn, p["id"])
+    drain(settings, conn)
+    assert edit_started(conn)
+    rows = conn.execute("SELECT * FROM gemini_requests").fetchall()
+    assert rows and all(r["mode"] == "online" and r["status"] == "done" for r in rows)
+    assert conn.execute("SELECT COUNT(*) FROM scores WHERE source = 'gemini'").fetchone()[0] > 0
+    assert budget.reserved(conn) == 0 and budget.spent_this_month(conn) > 0
+
+
+def test_other_batch_errors_still_fail(project):
+    settings, conn, p, fake = project
+
+    def boom(*a, **kw):
+        raise RuntimeError("503 UNAVAILABLE")
+    fake.submit_batch = boom
+    request_edit(conn, p["id"])
+    drain(settings, conn)
+    assert not conn.execute("SELECT 1 FROM gemini_requests WHERE mode = 'online'").fetchone()

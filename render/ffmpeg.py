@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
@@ -12,6 +14,25 @@ from typing import Callable
 
 class FFmpegError(RuntimeError):
     pass
+
+
+# Запущені ffmpeg: при зупинці програми воркер гасить їх сам.
+_running: set[subprocess.Popen] = set()
+_running_lock = threading.Lock()
+# На Windows Ctrl+C у вікні програми отримують усі процеси консолі — ffmpeg падав посеред рендеру.
+# Окрема група процесів: Ctrl+C до ffmpeg не доходить, його зупиняє terminate_all().
+_POPEN_FLAGS = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {}
+
+
+def terminate_all() -> int:
+    with _running_lock:
+        procs = list(_running)
+    for p in procs:
+        try:
+            p.terminate()
+        except OSError:
+            pass
+    return len(procs)
 
 
 @lru_cache
@@ -66,16 +87,23 @@ def run_ffmpeg(args: list[str], duration: float = 0.0,
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
            "-progress", "pipe:1", "-nostats", *args]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", errors="replace")
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        if on_progress and duration > 0 and line.startswith("out_time_us="):
-            try:
-                on_progress(min(1.0, int(line.split("=", 1)[1]) / 1e6 / duration))
-            except ValueError:
-                pass
-    stderr = proc.stderr.read() if proc.stderr else ""
-    if proc.wait() != 0:
+                            encoding="utf-8", errors="replace", **_POPEN_FLAGS)
+    with _running_lock:
+        _running.add(proc)
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if on_progress and duration > 0 and line.startswith("out_time_us="):
+                try:
+                    on_progress(min(1.0, int(line.split("=", 1)[1]) / 1e6 / duration))
+                except ValueError:
+                    pass
+        stderr = proc.stderr.read() if proc.stderr else ""
+        code = proc.wait()
+    finally:
+        with _running_lock:
+            _running.discard(proc)
+    if code != 0:
         raise FFmpegError(stderr.strip()[-1500:] or "ffmpeg завершився з помилкою")
 
 

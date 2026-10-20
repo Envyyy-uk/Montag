@@ -105,6 +105,12 @@ def fail(conn: sqlite3.Connection, job_id: int, error: str) -> str:
     return status
 
 
+def requeue_interrupted(conn: sqlite3.Connection, job_id: int) -> None:
+    """Завдання перервала зупинка програми — назад у чергу, спроба не рахується."""
+    conn.execute("UPDATE jobs SET status = 'queued', error = NULL, attempts = MAX(0, attempts - 1),"
+                 " finished_at = NULL WHERE id = ?", (job_id,))
+
+
 def recover(conn: sqlite3.Connection) -> int:
     """Після перезапуску: перервані завдання знову в черзі."""
     return conn.execute("UPDATE jobs SET status = 'queued' WHERE status = 'running'").rowcount
