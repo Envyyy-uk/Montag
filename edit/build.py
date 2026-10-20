@@ -44,6 +44,8 @@ DEFAULT_PARAMS = {
     "transitions": True,     # ефектні переходи на акцентах (перемикач у превʼю)
     "disabled_transitions": [],
     "style_level": None,     # рівень інтенсивності стилю саме для цього проєкту
+    "aspect": "16:9",        # формат кліпу: 16:9 / 9:16 / 1:1 / 4:5
+    "fit_mode": "auto",      # кадри іншої форми: auto / crop (обрізати) / blur (розмитий фон)
 }
 
 
@@ -269,6 +271,38 @@ def render_audio(settings: Settings, conn: sqlite3.Connection, tl: Timeline, out
     tl.params["track_gain_db"] = report["master_db"]
 
 
+def clip_size(settings: Settings, params: dict) -> tuple[int, int]:
+    from render.frame import CLIP_ASPECTS, size_for
+    aspect = params.get("aspect") if params.get("aspect") in CLIP_ASPECTS else "16:9"
+    return size_for(aspect, settings.render_height)
+
+
+def clip_framings(conn, settings: Settings, tl, sources: dict, size: tuple[int, int], fit_mode: str) -> dict:
+    """Для кадрів, ширших за формат кліпу (напр. горизонтальні у 9:16), — вікно за обличчями."""
+    from analysis import framing as framing_mod
+    from render.frame import needs_x_crop
+
+    if fit_mode == "blur":
+        return {}
+    todo = [(i, c) for i, c in enumerate(tl.clips) if needs_x_crop(sources[c.media_id].width,
+                                                                    sources[c.media_id].height, *size)]
+    if not todo:
+        return {}
+    detector = framing_mod.make_detector(settings.library_path / "models")
+    out = {}
+    try:
+        for i, c in todo:
+            m = conn.execute("SELECT gemini_proxy_path, proxy_path FROM media WHERE id = ?", (c.media_id,)).fetchone()
+            src = sources[c.media_id]
+            out[i] = framing_mod.analyze_clip(detector, settings.library_path / (m["gemini_proxy_path"] or m["proxy_path"]),
+                                              c.src_in, c.end - c.start, src.width, src.height,
+                                              target_ar=size[0] / size[1])
+    finally:
+        if detector is not None and hasattr(detector, "close"):
+            detector.close()
+    return out
+
+
 def edit_dir(settings: Settings, slug: str, version: int) -> Path:
     return settings.library_path / slug / "edits" / f"clip_v{version:03d}"
 
@@ -328,9 +362,11 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
     exports = lib / project["slug"] / "exports"
     final = exports / f"{project['slug']}_clip_v{version:03d}.mp4"
     preview = exports / f"{project['slug']}_clip_v{version:03d}_720p.mp4"
-    render_timeline(tl, style, level, render_sources(conn, settings, [c.media_id for c in tl.clips]), wav,
-                    final, preview, transitions=bool(params.get("transitions", True)), size=settings.render_size,
-                    on_progress=lambda p: progress(0.1 + 0.9 * p))
+    sources = render_sources(conn, settings, [c.media_id for c in tl.clips])
+    size, fit_mode = clip_size(settings, tl.params), tl.params.get("fit_mode", "auto")
+    framings = clip_framings(conn, settings, tl, sources, size, fit_mode)
+    render_timeline(tl, style, level, sources, wav, final, preview, transitions=bool(params.get("transitions", True)),
+                    size=size, on_progress=lambda p: progress(0.1 + 0.9 * p), framings=framings, fit_mode=fit_mode)
 
     summary = {
         "duration": tl.duration, "fps": tl.fps, "cuts": len(tl.clips) - 1,

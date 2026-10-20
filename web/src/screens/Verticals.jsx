@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { Glass, Toast, usePoll, VhsScreen } from "../components/ui.jsx";
 
 const AUDIO = { live: "Живий звук", track: "Під трек", none: "Без музики" };
+const REEL_ASPECTS = { "9:16": "9:16 · Reels, TikTok, Shorts", "4:5": "4:5 · стрічка Instagram", "1:1": "1:1 · квадрат" };
 
 export default function Verticals() {
   const { id } = useParams();
@@ -17,6 +18,13 @@ export default function Verticals() {
     await api.put(`/api/projects/${id}/vertical-settings`, { audio });
     await api.post(`/api/projects/${id}/verticals`);
     setToast(`${AUDIO[audio]} — перероблюю ролики`);
+    setOv(await api.get(`/api/projects/${id}/overview`));
+  };
+
+  const setAspect = async (aspect) => {
+    await api.put(`/api/projects/${id}/vertical-settings`, { aspect });
+    await api.post(`/api/projects/${id}/verticals`);
+    setToast(`Формат ${aspect} — перероблюю ролики`);
     setOv(await api.get(`/api/projects/${id}/overview`));
   };
 
@@ -40,11 +48,19 @@ export default function Verticals() {
           <button key={k} className={`pill small ${ov.vertical_params.audio === k ? "on" : ""}`} onClick={() => setAudio(k)}>{label}</button>
         ))}
       </Glass>
+      <Glass className="stack">
+        <div className="label">Формат</div>
+        <div className="row wrap">
+          {Object.entries(REEL_ASPECTS).map(([k, label]) => (
+            <button key={k} className={`pill small ${(ov.vertical_params.aspect || "9:16") === k ? "on" : ""}`} onClick={() => setAspect(k)}>{label}</button>
+          ))}
+        </div>
+      </Glass>
       {busy && <VhsScreen message="Роблю вертикалі…" />}
       {!busy && !v && <Glass className="muted">Ролики з'являться після аналізу проєкту.</Glass>}
       {!busy && v && v.summary.reels.map((r, i) => (
         <Glass key={r.path} className="stack">
-          <video className="reel" src={`/api/edits/${v.id}/reels/${i + 1}`} controls playsInline preload="metadata" />
+          <video className="reel" style={{ aspectRatio: (v.aspect || "9:16").replace(":", "/") }} src={`/api/edits/${v.id}/reels/${i + 1}`} controls playsInline preload="metadata" />
           <div className="row spread">
             <div className="mono muted" style={{ fontSize: 13 }}>#{i + 1} · {r.duration.toFixed(1)} с · {AUDIO[r.audio]}</div>
             <button className="pill primary" onClick={() => share(i + 1, r.path.split("/").pop())}>Поділитися</button>

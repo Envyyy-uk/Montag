@@ -14,7 +14,8 @@ from typing import Callable
 
 from edit.timeline import Timeline
 from render.ffmpeg import atomic_output, commit_output, h264_args, run_ffmpeg
-from render.looks import Style, fit_graph, look_filters, stamp_filters
+from render.frame import frame_graph
+from render.looks import Style, look_filters, stamp_filters
 from render.transitions import TRANSITIONS, edge_filters, structural_graph
 
 
@@ -28,10 +29,10 @@ class Source:
 
 def clip_graph(src: Source, src_in: float, frames: int, fps: float, width: int, height: int,
                look: dict, kind_in: str | None = None, t_in: float = 0.0,
-               kind_out: str | None = None, t_out: float = 0.0) -> str:
+               kind_out: str | None = None, t_out: float = 0.0, framing=None, fit_mode: str = "auto") -> str:
     """filter_complex одного кліпу: вписати → fps → (стоп-кадр/перемотка) → ефекти країв → стиль → дата."""
     dur = frames / fps
-    parts = [fit_graph(src.width, src.height, width, height, "0:v", "fit"),
+    parts = [frame_graph(src.width, src.height, width, height, "0:v", "fit", framing, fit_mode),
              f"[fit]fps={fps},setpts=PTS-STARTPTS[base]"]
     cur = "base"
     if kind_out and TRANSITIONS[kind_out].structural:
@@ -50,6 +51,7 @@ def clip_graph(src: Source, src_in: float, frames: int, fps: float, width: int, 
 
 def render_clip_file(src: Source, src_in: float, frames: int, fps: float, out: Path, look: dict,
                      size: tuple[int, int], quality: str = "final", nvenc: bool | None = None, **edges) -> None:
+    """edges — переходи (kind_in/t_in/kind_out/t_out), а також framing і fit_mode для кадрування."""
     graph = clip_graph(src, src_in, frames, fps, size[0], size[1], look, **edges)
     run_ffmpeg(["-ss", f"{src_in:.4f}", "-t", f"{frames / fps + 1.0:.4f}", "-i", str(src.path),
                 "-filter_complex", graph, "-map", "[v]", "-an", "-frames:v", str(frames),
@@ -59,7 +61,8 @@ def render_clip_file(src: Source, src_in: float, frames: int, fps: float, out: P
 def render_timeline(tl: Timeline, style: Style, level: int, sources: dict[int, Source], audio: Path,
                     out: Path, preview: Path | None = None, transitions: bool = True,
                     size: tuple[int, int] = (1920, 1080), nvenc: bool | None = None,
-                    on_progress: Callable[[float], None] | None = None) -> None:
+                    on_progress: Callable[[float], None] | None = None,
+                    framings: dict | None = None, fit_mode: str = "auto") -> None:
     look = style.look(level)
     tmpdir = Path(tempfile.mkdtemp(prefix="render_", dir=out.parent))
     try:
@@ -77,7 +80,8 @@ def render_timeline(tl: Timeline, style: Style, level: int, sources: dict[int, S
                 if tout and tout["out"] > 0:
                     edges.update(kind_out=tout["kind"], t_out=tout["out"])
             part = tmpdir / f"{i:04d}.mp4"
-            render_clip_file(sources[c.media_id], c.src_in, frames, tl.fps, part, look, size, "final", nvenc, **edges)
+            render_clip_file(sources[c.media_id], c.src_in, frames, tl.fps, part, look, size, "final", nvenc,
+                             framing=(framings or {}).get(i), fit_mode=fit_mode, **edges)
             parts.append(part)
             if on_progress:
                 on_progress(0.85 * (i + 1) / n)
@@ -90,7 +94,8 @@ def render_timeline(tl: Timeline, style: Style, level: int, sources: dict[int, S
         commit_output(tmp, out)
         if preview is not None:
             tmp = atomic_output(preview)
-            run_ffmpeg(["-i", str(out), "-vf", f"scale=-2:{min(720, size[1])}:flags=lanczos", *h264_args("preview", nvenc),
+            run_ffmpeg(["-i", str(out), "-vf", (f"scale=-2:{min(720, size[1])}:flags=lanczos" if size[0] >= size[1]
+                                         else f"scale={min(720, size[0])}:-2:flags=lanczos"), *h264_args("preview", nvenc),
                         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(tmp)])
             commit_output(tmp, preview)
         if on_progress:

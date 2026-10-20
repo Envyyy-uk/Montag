@@ -1,4 +1,4 @@
-"""Рендер вертикального ролика 9:16 (H.264, 30 fps) зі стилем і датою зйомки."""
+"""Рендер вертикального ролика (9:16, 4:5 або 1:1) (H.264, 30 fps) зі стилем і датою зйомки."""
 
 from __future__ import annotations
 
@@ -8,26 +8,22 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis.framing import Framing, crop_x_expr
+from analysis.framing import Framing
 from edit import audio_mix
 from render.clip_render import Source
 from render.ffmpeg import atomic_output, commit_output, h264_args, run_ffmpeg
-from render.looks import fit_graph, look_filters, stamp_filters
+from render.frame import frame_graph
+from render.looks import look_filters, stamp_filters
 
 FPS = 30.0
 
 
 def piece_graph(src: Source, framing: Framing, width: int, height: int, look: dict, src_in: float) -> str:
-    if framing.mode == "crop":
-        window = (src.height * 9 / 16) / src.width
-        x = crop_x_expr(framing.keys, window)
-        head = (f"[0:v]setpts=PTS-STARTPTS,crop=w=trunc(ih*9/16/2)*2:h=ih:x='{x}':y=0,"
-                f"scale={width}:{height}:flags=lanczos,setsar=1[fit]")
-    else:  # native (вертикальний оригінал) або fit (розмитий фон)
-        head = fit_graph(src.width, src.height, width, height, "0:v", "fit")
+    head = frame_graph(src.width, src.height, width, height, "0:v", "fit", framing,
+                       "blur" if framing.mode == "fit" else "crop")
     chain = [f"fps={FPS}"] + look_filters(look, width, height) + stamp_filters(look, height, src.shot_at, src_in)
     chain.append("format=yuv420p")
-    return f"{head};[fit]" + ",".join(chain) + "[v]"
+    return f"[0:v]setpts=PTS-STARTPTS[pre];{head.replace('[0:v]', '[pre]', 1)};[fit]" + ",".join(chain) + "[v]"
 
 
 def render_reel(pieces: list[tuple[Source, float, float, Framing]], look: dict, audio: np.ndarray | None,

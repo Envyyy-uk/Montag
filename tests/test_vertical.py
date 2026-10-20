@@ -121,3 +121,42 @@ def test_moments_skip_stubby_reels_when_material_runs_out():
     ms = moments.choose(small, 3, 15)
     assert ms and all(m.duration >= 14.5 for m in ms)
     assert len(moments.choose(small[:3], 3, 20)) == 1  # зовсім мало — один ролик, а не нуль
+
+
+# ---------- формати кадру ----------
+
+@pytest.mark.parametrize("src", [(640, 360), (360, 640)])
+@pytest.mark.parametrize("aspect", ["16:9", "9:16", "1:1", "4:5"])
+@pytest.mark.parametrize("mode", ["auto", "crop", "blur"])
+def test_frame_graph_every_format(tmp_path, src, aspect, mode):
+    import json as _json
+    import subprocess
+
+    from analysis.framing import Framing
+    from render.frame import frame_graph, size_for
+    w, h = size_for(aspect, 240)
+    fr = Framing("crop", [(0.0, 0.3), (1.0, 0.7)]) if src[0] > src[1] else None
+    out = tmp_path / "o.mp4"
+    g = frame_graph(src[0], src[1], w, h, "0:v", "v", fr, mode)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=s={src[0]}x{src[1]}:d=1",
+                    "-filter_complex", g, "-map", "[v]", "-pix_fmt", "yuv420p", str(out)], check=True)
+    st = _json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                     "stream=width,height", "-of", "json", str(out)],
+                                    capture_output=True, text=True).stdout)["streams"][0]
+    assert (st["width"], st["height"]) == (w, h)
+
+
+def test_frame_choices():
+    from analysis.framing import Framing
+    from render.frame import frame_graph, size_for
+    assert size_for("4:5", 1080) == (1080, 1350) and size_for("16:9", 1080) == (1920, 1080)
+    # вертикальне в 16:9: auto — розмитий фон, crop — смуга по висоті
+    assert "gblur" in frame_graph(1080, 1920, 1920, 1080, "0:v", "v", None, "auto")
+    assert "gblur" not in frame_graph(1080, 1920, 1920, 1080, "0:v", "v", None, "crop")
+    # горизонтальне в 9:16 з обличчями — вікно за обличчям навіть у auto
+    g = frame_graph(1920, 1080, 1080, 1920, "0:v", "v", Framing("crop", [(0.0, 0.4)]), "auto")
+    assert "crop=w=trunc(ih*" in g and "gblur" not in g
+    # 4:3 в 1:1 (помірно) — обрізання; 16:9 у 4:5 без облич — фон; blur — завжди фон
+    assert "gblur" not in frame_graph(1440, 1080, 1080, 1080, "0:v", "v", None, "auto")
+    assert "gblur" in frame_graph(1920, 1080, 1080, 1350, "0:v", "v", None, "auto")
+    assert "gblur" in frame_graph(1440, 1080, 1080, 1080, "0:v", "v", None, "blur")

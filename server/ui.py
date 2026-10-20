@@ -46,11 +46,14 @@ def overview(project_id: int, conn: sqlite3.Connection = Depends(db), settings: 
         "SELECT kind, COUNT(*) n FROM media WHERE project_id = ? GROUP BY kind", (project_id,))}
     shot = conn.execute("SELECT MIN(shot_at) FROM media WHERE project_id = ?", (project_id,)).fetchone()[0]
 
+    from server.edits import main_edit
+
     def latest(kind):
-        r = conn.execute("SELECT * FROM edits WHERE project_id = ? AND kind = ? ORDER BY version DESC LIMIT 1",
-                         (project_id, kind)).fetchone()
+        r = main_edit(conn, project_id, kind)  # основна версія (закріплена або найновіша)
         return None if r is None else {"id": r["id"], "version": r["version"], "created_at": r["created_at"],
-                                       "summary": json.loads(r["summary"] or "{}"), "davinci": bool(r["davinci_path"])}
+                                       "summary": json.loads(r["summary"] or "{}"), "davinci": bool(r["davinci_path"]),
+                                       "aspect": json.loads(r["params"] or "{}").get("aspect")
+                                       or ("9:16" if kind == "vertical" else "16:9")}
 
     jobs = [dict(r) for r in conn.execute(
         "SELECT id, kind, status, progress, payload FROM jobs WHERE project_id = ? AND status IN"
@@ -101,13 +104,31 @@ def track_energy(project_id: int, conn: sqlite3.Connection = Depends(db),
     edit = conn.execute("SELECT timeline_path FROM edits WHERE project_id = ? AND kind = 'clip'"
                         " ORDER BY version DESC LIMIT 1", (project_id,)).fetchone()
     window = None
-    if edit:
+    clip = json.loads(p["settings"] or "{}").get("clip", {})
+    if clip.get("track_start") is not None and clip.get("track_end") is not None:
+        window = {"start": clip["track_start"], "end": clip["track_end"]}  # те, що вибрав ти
+    elif edit:
         tl = json.loads((settings.library_path / edit["timeline_path"]).read_text(encoding="utf-8"))
         window = {"start": tl["track_in"], "end": tl["track_out"]}
     bars = [{"t": ta.bar_start_time(k), "energy": e, "level": ta.bar_level[k]} for k, e in enumerate(ta.bar_energy)]
     return {"duration": ta.duration, "tempo": ta.tempo, "bars": bars, "window": window,
             "drops": [ta.bar_start_time(k) for k in ta.drops],
             "choruses": [[ta.bar_start_time(a), ta.bar_start_time(min(b, len(ta.downbeats) - 1))] for a, b in ta.choruses]}
+
+
+@router.get("/projects/{project_id}/track.audio")
+def track_audio(project_id: int, conn: sqlite3.Connection = Depends(db), settings: Settings = Depends(settings_dep)):
+    """Сам трек — щоб прослухати вибраний шматок перед перемонтажем."""
+    import mimetypes
+
+    t = conn.execute("SELECT * FROM media WHERE project_id = ? AND kind = 'track' ORDER BY id DESC LIMIT 1",
+                     (project_id,)).fetchone()
+    if t is None:
+        raise HTTPException(404, "Треку немає")
+    path = settings.library_path / t["original_path"]
+    if not path.exists():
+        raise HTTPException(404, "Файл треку зник")
+    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "audio/mpeg")
 
 
 @router.put("/budget/settings")

@@ -69,7 +69,9 @@ def export(conn: sqlite3.Connection, settings: Settings, edit_id: int,
     name = Path(edit["export_path"]).stem if edit["export_path"] else f"{project['slug']}_clip_v{edit['version']:03d}"
     root = lib / project["slug"] / "exports" / f"{name}_davinci"
     media_dir = root / "media"
-    width, height = settings.render_size
+    from edit.build import clip_size
+    width, height = clip_size(settings, tl.params)  # формат кліпу: 16:9 / 9:16 / 1:1 / 4:5
+    fit_mode = tl.params.get("fit_mode", "auto")
     style = get_style(edit["style_id"] or settings.default_style)
     look = style.look(edit["style_level"] or style.default_level)
 
@@ -107,7 +109,8 @@ def export(conn: sqlite3.Connection, settings: Settings, edit_id: int,
                          info.get("display_height") or 1080, m["shot_at"])
             styled.parent.mkdir(parents=True, exist_ok=True)
             tmp = styled.with_name(f".{styled.stem}.part.mp4")
-            render_clip_file(src, (src_in_f - head) / fps, head + dur + tail, fps, tmp, look, (width, height))
+            render_clip_file(src, (src_in_f - head) / fps, head + dur + tail, fps, tmp, look, (width, height),
+                             fit_mode=fit_mode)
             tmp.replace(styled)
         key = f"s{i + 1}"
         assets[key] = fcpxml.Asset(key, styled.stem, styled, (head + dur + tail) * fd, True, False,

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtDate, JOB_LABELS, money, PROJECT_STATUS } from "../api.js";
 import { Bar, Glass, RecDot, usePoll } from "../components/ui.jsx";
@@ -9,7 +10,8 @@ export default function Queue() {
   const [jobs] = usePoll(() => api.get("/api/queue"), 2500);
   const [projects] = usePoll(() => api.get("/api/projects"), 5000);
   const [budget] = usePoll(() => api.get("/api/budget"), 10000);
-  const active = (jobs || []).filter((j) => j.status !== "done");
+  const [gone, setGone] = useState([]);
+  const active = (jobs || []).filter((j) => j.status !== "done" && !gone.includes(j.id));
   const busy = active.some((j) => j.status === "running");
 
   return (
@@ -32,6 +34,12 @@ export default function Queue() {
                 <div className="muted" style={{ fontSize: 13 }}>{j.project || "—"}</div>
               </div>
               <span className={`badge ${STATUS_CLASS[j.status] || ""}`}>{STATUS_TEXT[j.status] || j.status}</span>
+              <button className="pill small" aria-label="Прибрати з черги" style={{ marginLeft: 8 }}
+                onClick={async () => {
+                  const q = j.status === "running" ? "Зупинити це завдання?" : j.status === "failed" ? "Сховати помилку?" : "Скасувати це завдання?";
+                  if (!window.confirm(q)) return;
+                  try { await api.del(`/api/jobs/${j.id}`); setGone((g) => [...g, j.id]); } catch (e) { alert(e.message); }
+                }}>✕</button>
             </div>
             {j.status === "running" && <Bar value={j.progress} />}
             {j.status === "failed" && <div className="faint mono" style={{ fontSize: 11 }}>{(j.error || "").split("\n")[0]}</div>}

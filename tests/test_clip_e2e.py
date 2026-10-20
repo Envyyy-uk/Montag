@@ -240,7 +240,7 @@ def test_vertical_settings_api(built):
     settings, conn, p = built
     with TestClient(create_app(settings, start_worker=False)) as client:
         r = client.put(f"/api/projects/{p['id']}/vertical-settings", json={"audio": "none", "count": 1})
-        assert r.json() == {"count": 1, "length": 20.0, "audio": "none"}
+        assert r.json() == {"count": 1, "length": 20.0, "audio": "none", "aspect": "9:16"}
         assert client.put(f"/api/projects/{p['id']}/vertical-settings", json={"audio": "loud"}).status_code == 422
         assert client.put(f"/api/projects/{p['id']}/vertical-settings", json={"length": 40}).status_code == 422
         edit = conn.execute("SELECT id FROM edits WHERE kind = 'vertical'").fetchone()["id"]
@@ -272,3 +272,28 @@ def test_more_crowd_by_words_changes_clip_without_gemini(built):
     assert crowd_share(after) > crowd_share(before) + 0.1, (crowd_share(before), crowd_share(after))
     assert conn.execute("SELECT COUNT(*) FROM gemini_requests").fetchone()[0] == gemini_before
     assert conn.execute("SELECT COUNT(*) FROM spend").fetchone()[0] == spend_before
+
+
+def test_clip_and_reels_in_other_formats(built):
+    """Кліп 9:16 і ролики 4:5: розміри правильні, кадрування спрацювало."""
+    from analysis import framing
+
+    from edit.build import edit_project
+    from edit.verticals import vertical_project
+    from render.frame import size_for
+    settings, conn, p = built
+    mp = pytest.MonkeyPatch()
+    mp.setattr(framing, "make_detector", lambda models_dir: FakeFaceDetector())
+    try:
+        edit_project(conn, settings, {"project_id": p["id"], "params": {"aspect": "9:16", "length": 8.0}}, lambda x: None)
+        vertical_project(conn, settings, {"project_id": p["id"], "params": {"aspect": "4:5", "count": 1}}, lambda x: None)
+    finally:
+        mp.undo()
+    clip = conn.execute("SELECT * FROM edits WHERE kind = 'clip' ORDER BY version DESC LIMIT 1").fetchone()
+    st = _probe(settings.library_path / clip["export_path"])
+    assert (st["video"]["width"], st["video"]["height"]) == size_for("9:16", settings.render_height)
+    assert json.loads(clip["params"])["aspect"] == "9:16"
+    reel = json.loads(conn.execute("SELECT summary FROM edits WHERE kind = 'vertical' ORDER BY version DESC LIMIT 1"
+                                   ).fetchone()[0])["reels"][0]
+    st = _probe(settings.library_path / reel["path"])
+    assert (st["video"]["width"], st["video"]["height"]) == size_for("4:5", settings.render_height)

@@ -127,9 +127,12 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
 
     @mcp.tool()
     async def make_verticals(project_id: int, count: int | None = None, length: float | None = None,
-                             audio: Literal["live", "track", "none"] | None = None) -> dict:
-        """Вертикальні ролики 9:16. count 1–10, length 15–25 с, audio: live (живий звук), track або none."""
-        body = {k: v for k, v in {"count": count, "length": length, "audio": audio}.items() if v is not None}
+                             audio: Literal["live", "track", "none"] | None = None,
+                             aspect: Literal["9:16", "4:5", "1:1"] | None = None) -> dict:
+        """Вертикальні ролики. count 1–10, length 15–25 с, audio: live (живий звук), track або none;
+        aspect: 9:16 (Reels/TikTok/Shorts), 4:5 (стрічка Instagram), 1:1."""
+        body = {k: v for k, v in {"count": count, "length": length, "audio": audio, "aspect": aspect}.items()
+                if v is not None}
         if body:
             await api.put(f"/api/projects/{project_id}/vertical-settings", body)
         return await api.post(f"/api/projects/{project_id}/verticals")
@@ -142,6 +145,41 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
         if st["ready"]:
             return {"готово": True, "папка": st["folder"], "fcpxml": st["fcpxml"]}
         return {"готово": False, **await api.post(f"/api/edits/{eid}/davinci")}
+
+    @mcp.tool()
+    async def clip_format(project_id: int, aspect: Literal["16:9", "9:16", "1:1", "4:5"] | None = None,
+                          fit_mode: Literal["auto", "crop", "blur"] | None = None, rerender: bool = True) -> dict:
+        """Формат кліпу (16:9 YouTube, 9:16 Reels/TikTok, 1:1, 4:5 Instagram) і що робити з кадрами іншої форми:
+        auto — обрізати за обличчями або розмитий фон, crop — завжди обрізати, blur — завжди розмитий фон."""
+        body = {k: v for k, v in {"aspect": aspect, "fit_mode": fit_mode}.items() if v is not None}
+        out = {"settings": await api.put(f"/api/projects/{project_id}/clip-settings", body)} if body else {}
+        if rerender:
+            out["job"] = await api.post(f"/api/projects/{project_id}/reedit")
+        return out
+
+    @mcp.tool()
+    async def versions(project_id: int) -> list[dict]:
+        """Усі версії кліпу й вертикалей: номер, дата, формат, яка основна, посилання для скачування."""
+        out = []
+        for e in await api.get(f"/api/projects/{project_id}/edits"):
+            item = {"edit_id": e["id"], "що": e["kind"], "версія": e["version"], "коли": e["created_at"],
+                    "формат": e["aspect"], "основна": e["main"]}
+            if e["kind"] == "clip":
+                item["скачати"] = [f"/api/edits/{e['id']}/video", f"/api/edits/{e['id']}/preview?download=1"]
+            else:
+                item["скачати"] = [f"/api/edits/{e['id']}/reels/{n}" for n in range(1, len(e["summary"].get("reels", [])) + 1)]
+            out.append(item)
+        return out
+
+    @mcp.tool()
+    async def make_main_version(edit_id: int) -> dict:
+        """Зробити версію основною: її показує застосунок, а наступні правки будуються від її налаштувань."""
+        return await api.post(f"/api/edits/{edit_id}/main")
+
+    @mcp.tool()
+    async def cancel_job(job_id: int) -> dict:
+        """Прибрати завдання з черги: скасувати те, що чекає, зупинити те, що йде, сховати помилку. Відео не чіпає."""
+        return await api.delete(f"/api/jobs/{job_id}")
 
     # ---------- правки словами ----------
 

@@ -44,3 +44,35 @@ def confirm(job_id: int, body: Decision, conn: sqlite3.Connection = Depends(db))
     if not queue.resolve_confirm(conn, job_id, body.approved):
         raise HTTPException(404, "Немає завдання, що чекає підтвердження")
     return {"job_id": job_id, "approved": body.approved}
+
+
+@router.delete("/jobs/{job_id}")
+def cancel_job(job_id: int, conn: sqlite3.Connection = Depends(db), settings: Settings = Depends(settings_dep)) -> dict:
+    """Прибрати завдання з черги: те, що чекає, — скасувати; те, що йде, — зупинити; помилку — сховати.
+    Відео й готові версії не зачіпаються."""
+    job = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(404, "Завдання немає")
+    if job["kind"] == "poll_batch" and job["status"] != "done":
+        name = json.loads(job["payload"]).get("batch")
+        try:  # зупинити batch у Google, щоб не платити за непотрібне
+            from analysis.scoring import get_backend
+            backend = get_backend(settings)
+            if backend is not None and hasattr(backend, "cancel_batch"):
+                backend.cancel_batch(name)
+        except Exception:  # noqa: BLE001
+            pass
+        conn.execute("UPDATE gemini_requests SET status = 'failed', error = 'скасовано', est_cost = 0"
+                     " WHERE batch_name = ? AND status IN ('pending', 'submitted')", (name,))
+    conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    stopped = False
+    if job["status"] == "running":
+        from render.ffmpeg import terminate_all
+        stopped = terminate_all() > 0  # рендер обривається одразу; інші етапи просто не запишуть результат
+    pid = job["project_id"]
+    if pid is not None and not conn.execute("SELECT 1 FROM jobs WHERE project_id = ? AND status IN"
+                                            " ('queued', 'running', 'awaiting_confirm') LIMIT 1", (pid,)).fetchone():
+        has_edit = conn.execute("SELECT 1 FROM edits WHERE project_id = ? LIMIT 1", (pid,)).fetchone()
+        conn.execute("UPDATE projects SET status = ? WHERE id = ? AND status NOT IN ('needs_track')",
+                     ("edited" if has_edit else "collecting", pid))
+    return {"cancelled": job_id, "was": job["status"], "stopped_render": stopped}

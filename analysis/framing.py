@@ -213,8 +213,8 @@ def decide(samples: list[tuple[float, list[Box]]], window: float, hint_x: float 
 
 
 def analyze_clip(detector: Detector | None, proxy: Path, start: float, duration: float,
-                 src_w: int, src_h: int, hint_x: float | None = None) -> Framing:
-    window = (src_h * 9 / 16) / src_w
+                 src_w: int, src_h: int, hint_x: float | None = None, target_ar: float = 9 / 16) -> Framing:
+    window = (src_h * target_ar) / src_w
     if window >= 0.999:
         return Framing("native", reason="кадр уже вертикальний")
     if detector is None:

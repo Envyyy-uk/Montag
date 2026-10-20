@@ -23,6 +23,7 @@ class VerticalParams(BaseModel):
     count: int | None = Field(None, ge=1, le=10)
     length: float | None = Field(None, ge=15, le=25)
     audio: str | None = Field(None, pattern="^(live|track|none)$")
+    aspect: str | None = Field(None, pattern="^(9:16|4:5|1:1)$")
 
 
 class ClipParams(BaseModel):
@@ -39,6 +40,8 @@ class ClipParams(BaseModel):
     transitions: bool | None = None
     disabled_transitions: list[str] | None = None
     style_level: int | None = Field(None, ge=1, le=3)
+    aspect: str | None = Field(None, pattern="^(16:9|9:16|1:1|4:5)$")
+    fit_mode: str | None = Field(None, pattern="^(auto|crop|blur)$")
     reset_bounds: bool = False
 
 
@@ -49,12 +52,61 @@ def _project(conn, project_id: int):
         raise HTTPException(404, str(exc)) from exc
 
 
+def main_edit(conn, project_id: int, kind: str):
+    """Основна версія: закріплена вручну, поки після неї не з'явилась новіша; інакше — найновіша."""
+    p = conn.execute("SELECT settings FROM projects WHERE id = ?", (project_id,)).fetchone()
+    pin = json.loads((p["settings"] if p else None) or "{}").get("main", {}).get(kind)
+    newest = conn.execute("SELECT * FROM edits WHERE project_id = ? AND kind = ? ORDER BY version DESC LIMIT 1",
+                          (project_id, kind)).fetchone()
+    if pin and newest is not None and newest["created_at"] <= pin["at"]:
+        row = conn.execute("SELECT * FROM edits WHERE id = ? AND project_id = ?", (pin["id"], project_id)).fetchone()
+        if row is not None:
+            return row
+    return newest
+
+
 @router.get("/projects/{project_id}/edits")
-def list_edits(project_id: int, conn: sqlite3.Connection = Depends(db)) -> list[dict]:
+def list_edits(project_id: int, conn: sqlite3.Connection = Depends(db),
+               settings: Settings = Depends(settings_dep)) -> list[dict]:
     _project(conn, project_id)
+    main = {k: (r["id"] if (r := main_edit(conn, project_id, k)) else None) for k in ("clip", "vertical")}
     rows = conn.execute("SELECT * FROM edits WHERE project_id = ? ORDER BY kind, version DESC", (project_id,))
-    return [{"id": r["id"], "kind": r["kind"], "version": r["version"], "created_at": r["created_at"],
-             "params": json.loads(r["params"]), "summary": json.loads(r["summary"] or "{}")} for r in rows]
+    lib = settings.library_path
+    out = []
+    for r in rows:
+        params = json.loads(r["params"])
+        summary = json.loads(r["summary"] or "{}")
+        out.append({"id": r["id"], "kind": r["kind"], "version": r["version"], "created_at": r["created_at"],
+                    "params": params, "summary": summary, "main": main[r["kind"]] == r["id"],
+                    "aspect": params.get("aspect") or ("9:16" if r["kind"] == "vertical" else "16:9"),
+                    "files": {"video": bool(r["export_path"] and (lib / r["export_path"]).exists()),
+                              "preview": bool(r["preview_path"] and (lib / r["preview_path"]).exists())}})
+    return out
+
+
+@router.post("/edits/{edit_id}/main")
+def make_main(edit_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
+    """Зробити версію основною: її показує проєкт, а наступні правки будуються від її налаштувань."""
+    from datetime import datetime, timezone
+    row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Монтаж не знайдено")
+    project = _project(conn, row["project_id"])
+    stored = json.loads(project["settings"] or "{}")
+    params = json.loads(row["params"])
+    if row["kind"] == "clip":
+        stored["clip"] = {k: params[k] for k in DEFAULT_PARAMS if k in params}
+        if row["style_level"]:
+            stored["clip"]["style_level"] = row["style_level"]
+        if row["style_id"]:
+            conn.execute("UPDATE projects SET style_id = ? WHERE id = ?", (row["style_id"], row["project_id"]))
+    else:
+        from edit.verticals import DEFAULTS as VDEF
+        stored["vertical"] = {k: params[k] for k in VDEF if k in params}
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    stored.setdefault("main", {})[row["kind"]] = {"id": edit_id, "at": now}
+    conn.execute("UPDATE projects SET settings = ? WHERE id = ?", (json.dumps(stored, ensure_ascii=False), row["project_id"]))
+    return {"main": edit_id, "kind": row["kind"], "version": row["version"]}
 
 
 @router.get("/edits/{edit_id}/timeline")
@@ -100,7 +152,7 @@ def davinci_export(edit_id: int, conn: sqlite3.Connection = Depends(db)) -> dict
 
 
 @router.get("/edits/{edit_id}/preview")
-def preview(edit_id: int, conn: sqlite3.Connection = Depends(db),
+def preview(edit_id: int, download: bool = False, conn: sqlite3.Connection = Depends(db),
             settings: Settings = Depends(settings_dep)) -> FileResponse:
     row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
     if row is None or not row["preview_path"]:
@@ -108,7 +160,7 @@ def preview(edit_id: int, conn: sqlite3.Connection = Depends(db),
     path = settings.library_path / row["preview_path"]
     if not path.exists():
         raise HTTPException(404, "Файл превʼю зник")
-    return FileResponse(path, media_type="video/mp4")
+    return FileResponse(path, media_type="video/mp4", filename=path.name if download else None)
 
 
 @router.get("/projects/{project_id}/clip-settings")

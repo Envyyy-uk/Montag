@@ -77,6 +77,9 @@ class Worker:
                              lambda p: queue.set_progress(conn, job["id"], p),
                              **({"job_id": job["id"]} if getattr(handler, "wants_job_id", False) else {}))
         except Exception as exc:  # noqa: BLE001 — будь-яка помилка етапу не валить воркер
+            if conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job["id"],)).fetchone() is None:
+                log.info("завдання %s скасовано", job["id"])  # його прибрали з черги під час роботи
+                return True
             if self._stop.is_set():  # програму зупиняють — це не помилка етапу
                 queue.requeue_interrupted(conn, job["id"])
                 log.info("завдання %s перервано зупинкою — продовжиться після запуску", job["id"])

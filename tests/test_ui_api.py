@@ -91,3 +91,40 @@ def test_track_energy_and_cover_after_edit(settings):
         assert abs(tr["tempo"] - 120) < 2 and len(tr["bars"]) > 40 and tr["drops"] and tr["window"] is None
         r = c.get(f"/api/projects/{p['id']}/cover.jpg")
         assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+
+
+def test_cancel_jobs_and_project_status(client, settings):
+    from worker import queue as q
+    pid = client.post("/api/projects", json={"name": "Скасування"}).json()["id"]
+    conn = open_db(settings.database_path)
+    queued = q.enqueue(conn, "edit_project", {"project_id": pid}, project_id=pid)
+    conn.execute("UPDATE projects SET status = 'queued' WHERE id = ?", (pid,))
+    failed = q.enqueue(conn, "vertical_project", {"project_id": pid}, project_id=pid)
+    conn.execute("UPDATE jobs SET status = 'failed', error = 'boom' WHERE id = ?", (failed,))
+    conn.commit()
+    r = client.delete(f"/api/jobs/{queued}").json()
+    assert r["was"] == "queued"
+    assert client.delete(f"/api/jobs/{failed}").status_code == 200
+    assert client.delete(f"/api/jobs/{failed}").status_code == 404
+    assert not [j for j in client.get("/api/queue").json() if j["project_id"] == pid]
+    assert client.get(f"/api/projects/{pid}").json()["status"] == "collecting"  # без версій — назад у «чекає»
+
+
+def test_cancelled_running_job_is_not_failed(settings):
+    from worker import queue as q
+    from worker.runner import Worker
+    conn = open_db(settings.database_path)
+    w = Worker(settings, handlers={})
+
+    def render(conn_, settings_, payload, progress):
+        conn_.execute("DELETE FROM jobs WHERE kind = 'render'")  # як ✕ у застосунку під час роботи
+        raise RuntimeError("ffmpeg зупинено")
+    w.handlers = {"render": render}
+    q.enqueue(conn, "render", {})
+    assert w.run_one(conn)
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
+
+
+def test_track_audio_and_saved_window(client, settings):
+    pid = client.post("/api/projects", json={"name": "Трек"}).json()["id"]
+    assert client.get(f"/api/projects/{pid}/track.audio").status_code == 404

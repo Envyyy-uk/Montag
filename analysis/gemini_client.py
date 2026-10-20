@@ -88,6 +88,9 @@ class GenaiBackend:
         job = self.client.batches.create(model=model, src=src, config={"display_name": display_name})
         return job.name
 
+    def cancel_batch(self, name: str) -> None:
+        self.client.batches.cancel(name=name)
+
     def get_batch(self, name: str) -> BatchStatus:
         job = self.client.batches.get(name=name)
         state = job.state.name if job.state else "JOB_STATE_UNSPECIFIED"

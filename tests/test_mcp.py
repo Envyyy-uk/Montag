@@ -230,3 +230,40 @@ def test_delete_code_survives_busy_refusal(env, clip):
     conn.execute("UPDATE jobs SET status = 'done' WHERE id = ?", (jid,))
     conn.commit()
     assert not call(env, "delete_renders", {"edit_id": clip["eid"], "code": code}).is_error
+
+
+def test_versions_list_main_pin_and_downloads(env, clip):
+    import time
+    from fastapi.testclient import TestClient
+    conn = env["conn"]
+    # друга версія того самого кліпу
+    conn.execute("INSERT INTO edits(project_id, kind, version, params, timeline_path, export_path, preview_path, summary,"
+                 " style_id, style_level) SELECT project_id, 'clip', 2, ?, timeline_path, export_path, preview_path,"
+                 " summary, 'vhs-90s', 3 FROM edits WHERE id = ?",
+                 (json.dumps({"length": 30.0, "aspect": "1:1", "inserts": False}), clip["eid"]))
+    conn.commit()
+    with TestClient(env["app"]) as c:
+        eds = c.get(f"/api/projects/{clip['pid']}/edits").json()
+        assert [e["version"] for e in eds] == [2, 1] and eds[0]["main"] and not eds[1]["main"]
+        assert eds[0]["aspect"] == "1:1" and eds[1]["aspect"] == "16:9" and eds[1]["files"]["video"]
+        r = c.get(f"/api/edits/{clip['eid']}/preview?download=1")
+        assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+        assert "attachment" not in c.get(f"/api/edits/{clip['eid']}/preview").headers.get("content-disposition", "")
+        time.sleep(0.01)
+        new_id = eds[0]["id"]
+        # закріпити v1 — проєкт показує її, налаштування повертаються до її параметрів
+        assert c.post(f"/api/edits/{clip['eid']}/main").json()["version"] == 1
+        assert c.get(f"/api/projects/{clip['pid']}/overview").json()["clip"]["version"] == 1
+        # закріпити v2 — повертаються її параметри і стиль
+        c.post(f"/api/edits/{new_id}/main")
+        ov = c.get(f"/api/projects/{clip['pid']}/overview").json()
+        assert ov["clip"]["version"] == 2 and ov["clip_params"]["aspect"] == "1:1" and ov["clip_params"]["length"] == 30.0
+        assert ov["style"]["id"] == "vhs-90s" and ov["style"]["level"] == 3
+    vs = data(call(env, "versions", {"project_id": clip["pid"]}))
+    assert {v["версія"] for v in vs} == {1, 2}
+
+
+def test_clip_format_tool_sets_aspect(env, clip):
+    res = data(call(env, "clip_format", {"project_id": clip["pid"], "aspect": "4:5", "fit_mode": "blur"}))
+    assert res["settings"]["aspect"] == "4:5" and res["settings"]["fit_mode"] == "blur" and res["job"]["job_id"]
+    assert call(env, "clip_format", {"project_id": clip["pid"], "aspect": "3:2"}).is_error

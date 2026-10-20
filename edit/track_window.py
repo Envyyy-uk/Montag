@@ -52,12 +52,14 @@ def best_window(track: TrackAnalysis, length: float = 60.0) -> Window:
 
 
 def window_from_bounds(track: TrackAnalysis, start: float, end: float) -> Window:
-    """Межі, задані користувачем (інтерфейс/правка словами), притягуються до сильних долей."""
+    """Межі, задані користувачем, притягуються лише до найближчої долі (≤ півдолі), а не до такту —
+    інакше вибраний шматок «стрибав» на секунду."""
     beats = np.asarray(track.beats)
-    downs = np.asarray(track.downbeats) if track.downbeats else np.arange(len(beats))
-    a = int(downs[np.argmin(np.abs(beats[downs] - start))])
-    b = int(downs[np.argmin(np.abs(beats[downs] - end))])
+    a = int(np.argmin(np.abs(beats - start)))
+    b = int(np.argmin(np.abs(beats - end)))
     if b <= a:
         b = min(len(beats), a + 4)
     end_t = float(beats[b]) if b < len(beats) else track.duration
+    if abs(end - track.duration) < abs(end - end_t):  # до кінця пісні — так і лишаємо
+        end_t, b = track.duration, len(beats)
     return Window(float(beats[a]), end_t, a, b)

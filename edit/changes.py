@@ -42,6 +42,9 @@ CHANGES_SCHEMA: dict[str, Any] = {
         "vertical_count": {"type": "integer", "minimum": 1, "maximum": 10},
         "vertical_length": {"type": "number", "minimum": 15, "maximum": 25},
         "vertical_audio": {"type": "string", "enum": ["live", "track", "none"]},
+        "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"]},
+        "fit_mode": {"type": "string", "enum": ["auto", "crop", "blur"]},
+        "vertical_aspect": {"type": "string", "enum": ["9:16", "4:5", "1:1"]},
         "needs_reanalysis": {"type": "boolean"},
     },
     "required": ["summary"],
@@ -140,6 +143,30 @@ def local_parse(text: str) -> dict | None:
         ch["style_level_delta"] = -1
         notes.append("стиль м'якше")
 
+    # формат кадру: «квадрат», «1:1», «4:5 для інсти», «вертикальний кліп 9:16»
+    fmt = None
+    if re.search(r"\b1\s*[:x×]\s*1\b|квадрат", t):
+        fmt = "1:1"
+    elif re.search(r"\b4\s*[:x×]\s*5\b", t):
+        fmt = "4:5"
+    elif re.search(r"\b9\s*[:x×]\s*16\b", t):
+        fmt = "9:16"
+    elif re.search(r"\b16\s*[:x×]\s*9\b|горизонтальн", t):
+        fmt = "16:9"
+    reel_words = re.search(r"вертикал|рілс|тікток|ролик", t)
+    if fmt and reel_words and fmt != "16:9" and not re.search(r"кліп", t):
+        ch["vertical_aspect"] = fmt
+        notes.append(f"вертикалі у форматі {fmt}")
+    elif fmt:
+        ch["aspect"] = fmt
+        notes.append(f"кліп у форматі {fmt}")
+    if re.search(r"розмит\w* фон", t):
+        ch["fit_mode"] = "blur"
+        notes.append("кадри іншої форми — на розмитому фоні")
+    elif re.search(r"обріж|обріз|кадруй|без (розмит|рамок|смуг)", t):
+        ch["fit_mode"] = "crop"
+        notes.append("кадри іншої форми — обрізати")
+
     if "вертикал" in t or "рілс" in t or "тікток" in t:
         if re.search(r"без (музики|звуку|треку)", t):
             ch["vertical_audio"] = "none"
@@ -193,8 +220,9 @@ def parse(conn: sqlite3.Connection, settings, text: str, context: dict, project_
 
 # ---------- застосування ----------
 
-CLIP_KEYS = {"length", "track_start", "track_end", "inserts", "max_inserts", "live_gain_db"}
-VERTICAL_KEYS = {"vertical_count": "count", "vertical_length": "length", "vertical_audio": "audio"}
+CLIP_KEYS = {"length", "track_start", "track_end", "inserts", "max_inserts", "live_gain_db", "aspect", "fit_mode"}
+VERTICAL_KEYS = {"vertical_count": "count", "vertical_length": "length", "vertical_audio": "audio",
+                 "vertical_aspect": "aspect"}
 
 
 def merge_clip(params: dict, ch: dict, timeline_clips: list[dict] | None = None) -> dict:

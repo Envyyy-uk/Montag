@@ -18,7 +18,7 @@ from edit.select import EDGE_GUARD
 
 log = logging.getLogger(__name__)
 
-DEFAULTS = {"count": 3, "length": 20.0, "audio": "live"}  # audio: live | track | none
+DEFAULTS = {"count": 3, "length": 20.0, "audio": "live", "aspect": "9:16"}  # audio: live | track | none
 AUDIO_MODES = ("live", "track", "none")
 
 
@@ -69,7 +69,9 @@ def vertical_project(conn: sqlite3.Connection, settings: Settings, payload: dict
     sources = render_sources(conn, settings, [p.media_id for m in chosen for p in m.pieces])
     version = (conn.execute("SELECT MAX(version) FROM edits WHERE project_id = ? AND kind = 'vertical'",
                             (project["id"],)).fetchone()[0] or 0) + 1
-    width, height = settings.render_size[1], settings.render_size[0]  # 1080×1920
+    from render.frame import REEL_ASPECTS, ratio, size_for
+    aspect = params.get("aspect") if params.get("aspect") in REEL_ASPECTS else "9:16"
+    width, height = size_for(aspect, settings.render_height)  # 9:16 → 1080×1920
     detector = framing_mod.make_detector(lib / "models")
     reels = []
     try:
@@ -79,7 +81,8 @@ def vertical_project(conn: sqlite3.Connection, settings: Settings, payload: dict
                 m = media[p.media_id]
                 src = sources[p.media_id]
                 fr = framing_mod.analyze_clip(detector, lib / (m["gemini_proxy_path"] or m["proxy_path"]),
-                                              p.src_in, p.duration, src.width, src.height, p.subject_x)
+                                              p.src_in, p.duration, src.width, src.height, p.subject_x,
+                                              target_ar=ratio(aspect))
                 # 2 кадри запасу до межі шматка — без «спалах-кадра» з сусідньої сцени; звук рахується з тих самих тривалостей
                 pieces.append((src, p.src_in, max(1 / 30, p.duration - EDGE_GUARD), fr))
             if params["audio"] == "live":

@@ -47,7 +47,9 @@ def test_best_window_energetic_and_on_downbeats(song_analysis):
 
 def test_window_from_user_bounds_snaps(song_analysis):
     w = window_from_bounds(song_analysis, 10.3, 41.1)
-    assert w.start == pytest.approx(10.0, abs=0.04) and w.end == pytest.approx(42.0, abs=0.04)
+    # лише до найближчої долі (120 BPM — 0,5 с), а не до такту: межі не «стрибають»
+    assert abs(w.start - 10.3) <= 0.26 and abs(w.end - 41.1) <= 0.26
+    assert min(abs(w.start - b) for b in song_analysis.beats) < 0.04
 
 
 # ---------- ритм ----------

@@ -98,12 +98,16 @@ export default function Project() {
         <Link to={`/project/${id}/vertical`}>
           <Glass className="stack" style={{ height: "100%" }}>
             <div className="label">Вертикальні</div>
-            <div className="card-stat">{ov.vertical ? `${ov.vertical.summary.reels?.length || 0} ролики · 9:16` : "ще немає"} ›</div>
+            <div className="card-stat">{ov.vertical ? `${ov.vertical.summary.reels?.length || 0} ролики · ${ov.vertical.aspect}` : "ще немає"} ›</div>
           </Glass>
         </Link>
       </div>
 
+      <FormatBox id={id} ov={ov} act={act} />
+
       <EditBox id={id} onDone={(m) => { setToast(m); refresh(); }} />
+
+      <Versions id={id} onChange={(m) => { setToast(m); refresh(); }} />
 
       {ov.clip && (
         <div className="row wrap">
@@ -163,14 +167,18 @@ function DaVinci({ editId }) {
     : <span className="pill" aria-disabled>DaVinci готується…</span>;
 }
 
-/** Смужка енергії треку: межі шматка перетягуються, по відпусканню — перемонтаж. */
+/** Смужка енергії треку: межі тягнуться вільно, ▶ — прослухати шматок, перемонтаж — лише кнопкою «Застосувати». */
 function EnergyStrip({ id, onSaved }) {
   const [tr, setTr] = useState(null);
   const [win, setWin] = useState(null);
+  const [saved, setSaved] = useState(null);
+  const [playing, setPlaying] = useState(false);
   const box = useRef(null);
   const drag = useRef(null);
+  const audio = useRef(null);
   useEffect(() => {
-    api.get(`/api/projects/${id}/track`).then((t) => { setTr(t); setWin(t.window); }).catch(() => {});
+    api.get(`/api/projects/${id}/track`).then((t) => { setTr(t); setWin(t.window); setSaved(t.window); }).catch(() => {});
+    return () => audio.current?.pause();
   }, [id]);
   if (!tr || !win) return null;
   const pct = (t) => `${(t / tr.duration) * 100}%`;
@@ -180,35 +188,127 @@ function EnergyStrip({ id, onSaved }) {
   };
   const move = (e) => {
     if (!drag.current) return;
+    e.preventDefault();
     const t = toTime(e.clientX);
     setWin((w) => drag.current === "start" ? { ...w, start: Math.min(t, w.end - 5) } : { ...w, end: Math.max(t, w.start + 5) });
   };
-  const up = async () => {
-    if (!drag.current) return;
-    drag.current = null;
+  const up = () => { drag.current = null; };
+  const dirty = saved && (Math.abs(win.start - saved.start) > 0.05 || Math.abs(win.end - saved.end) > 0.05);
+  const play = () => {
+    const a = audio.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); return; }
+    a.currentTime = win.start;
+    a.play().then(() => setPlaying(true)).catch(() => {});
+  };
+  const tick = () => {
+    const a = audio.current;
+    if (a && a.currentTime >= win.end) { a.pause(); setPlaying(false); }
+  };
+  const apply = async () => {
+    audio.current?.pause(); setPlaying(false);
     await api.put(`/api/projects/${id}/clip-settings`, { track_start: win.start, track_end: win.end });
     await api.post(`/api/projects/${id}/reedit`);
+    setSaved(win);
     onSaved(`Шматок треку ${fmtTime(win.start)}–${fmtTime(win.end)} — перемонтовую`);
   };
   const barW = 100 / tr.bars.length;
   return (
     <Glass className="stack">
+      <audio ref={audio} src={`/api/projects/${id}/track.audio`} preload="none" onTimeUpdate={tick} onPause={() => setPlaying(false)} />
       <div className="row spread">
         <div className="label">Трек · {Math.round(tr.tempo)} BPM</div>
-        <div className="tc" style={{ fontSize: 13 }}>{fmtTime(win.start)}–{fmtTime(win.end)}</div>
+        <div className="tc" style={{ fontSize: 13 }}>{fmtTime(win.start)}–{fmtTime(win.end)} · {Math.round(win.end - win.start)} с</div>
       </div>
-      <div className="energy" ref={box} onPointerMove={move} onPointerUp={up} onPointerLeave={up}>
+      <div className="energy" ref={box} style={{ touchAction: "none" }} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         {tr.bars.map((b, i) => (
           <div key={i} className={`b ${b.level}`} style={{ left: `${i * barW}%`, width: `${barW * 0.8}%`, height: `${15 + b.energy * 85}%` }} />
         ))}
         {tr.drops.map((t, i) => <div key={`d${i}`} className="drop" style={{ left: pct(t) }} title="дроп" />)}
         <div className="win" style={{ left: pct(win.start), width: `calc(${pct(win.end)} - ${pct(win.start)})` }} />
         {["start", "end"].map((k) => (
-          <div key={k} className="h" style={{ left: pct(win[k]) }} role="slider" aria-label={k === "start" ? "Початок" : "Кінець"}
+          <div key={k} className="h" style={{ left: pct(win[k]), touchAction: "none" }} role="slider" aria-label={k === "start" ? "Початок" : "Кінець"}
             aria-valuenow={Math.round(win[k])} onPointerDown={(e) => { drag.current = k; e.currentTarget.setPointerCapture?.(e.pointerId); }}
-            onPointerMove={move} onPointerUp={up} />
+            onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
         ))}
       </div>
+      <div className="row wrap">
+        <button className="pill small" onClick={play}>{playing ? "■ Стоп" : "▶ Прослухати"}</button>
+        {dirty && <button className="pill small primary" onClick={apply}>Застосувати</button>}
+        {dirty && <button className="pill small" onClick={() => setWin(saved)}>Скасувати</button>}
+      </div>
+    </Glass>
+  );
+}
+
+const CLIP_ASPECTS = { "16:9": "16:9 · YouTube", "9:16": "9:16 · Reels/TikTok", "1:1": "1:1 · квадрат", "4:5": "4:5 · Instagram" };
+const FIT_MODES = { auto: "авто", crop: "обрізати", blur: "розмитий фон" };
+
+/** Формат кліпу і що робити з кадрами іншої форми (напр. вертикальне відео в горизонтальному кліпі). */
+function FormatBox({ id, ov, act }) {
+  const p = ov.clip_params;
+  const set = (patch, msg) => act(() => api.put(`/api/projects/${id}/clip-settings`, patch), msg);
+  const changed = ov.clip && ((p.aspect || "16:9") !== (ov.clip.aspect || "16:9"));
+  return (
+    <Glass className="stack">
+      <div className="label">Формат кліпу</div>
+      <div className="row wrap">
+        {Object.entries(CLIP_ASPECTS).map(([k, label]) => (
+          <button key={k} className={`pill small ${(p.aspect || "16:9") === k ? "on" : ""}`} onClick={() => set({ aspect: k }, `Формат ${k}`)}>{label}</button>
+        ))}
+      </div>
+      <div className="label">Кадри іншої форми</div>
+      <div className="row wrap">
+        {Object.entries(FIT_MODES).map(([k, label]) => (
+          <button key={k} className={`pill small ${(p.fit_mode || "auto") === k ? "on" : ""}`} onClick={() => set({ fit_mode: k }, label)}>{label}</button>
+        ))}
+      </div>
+      <div className="faint" style={{ fontSize: 12 }}>Авто: обрізає за обличчями, а якщо обрізати не вийде — кладе на розмитий фон.</div>
+      {changed && <button className="pill small primary" onClick={() => act(() => api.post(`/api/projects/${id}/reedit`), "Перемонтовую в новому форматі")}>Перемонтувати в {p.aspect}</button>}
+    </Glass>
+  );
+}
+
+/** Усі версії: переглянути, скачати 1080p / 720p, зробити основною. */
+function Versions({ id, onChange }) {
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState(false);
+  const load = () => api.get(`/api/projects/${id}/edits`).then(setList).catch(() => {});
+  useEffect(() => { if (open) load(); }, [open, id]);
+  const main = async (e) => {
+    try { await api.post(`/api/edits/${e.id}/main`); onChange(`v${e.version} тепер основна — правки підуть від неї`); load(); }
+    catch (err) { onChange(err.message); }
+  };
+  return (
+    <Glass className="stack">
+      <button className="row spread" style={{ background: "none", border: 0, color: "inherit", padding: 0 }} onClick={() => setOpen(!open)}>
+        <span className="label">Усі версії</span><span className="faint">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && !list && <div className="muted">Завантаження…</div>}
+      {open && list && list.length === 0 && <div className="muted">Версій ще немає.</div>}
+      {open && list && list.map((e) => (
+        <div key={e.id} className="stack" style={{ gap: 6, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,.08)" }}>
+          <div className="row spread">
+            <div>
+              <b>{e.kind === "clip" ? "Кліп" : "Вертикалі"} v{e.version}</b> {e.main && <span className="badge done">основна</span>}
+              <div className="faint mono" style={{ fontSize: 11 }}>
+                {e.created_at.slice(5, 16).replace("T", " ")} · {e.aspect}
+                {e.kind === "clip" ? ` · ${fmtTime(e.summary.duration || 0)} · ${e.summary.cuts ?? "?"} склейок · ${e.summary.style || ""}`
+                  : ` · ${(e.summary.reels || []).length} ролики`}
+              </div>
+            </div>
+          </div>
+          <div className="row wrap">
+            {e.kind === "clip" && e.files.preview && <a className="pill small" href={`/api/edits/${e.id}/preview`} target="_blank" rel="noreferrer">▶</a>}
+            {e.kind === "clip" && e.files.video && <a className="pill small" href={`/api/edits/${e.id}/video`} download>⬇ 1080p</a>}
+            {e.kind === "clip" && e.files.preview && <a className="pill small" href={`/api/edits/${e.id}/preview?download=1`} download>⬇ 720p</a>}
+            {e.kind === "vertical" && (e.summary.reels || []).map((r, i) => (
+              <a key={i} className="pill small" href={`/api/edits/${e.id}/reels/${i + 1}`} download>⬇ #{i + 1}</a>
+            ))}
+            {!e.main && <button className="pill small" onClick={() => main(e)}>★ Зробити основною</button>}
+          </div>
+        </div>
+      ))}
     </Glass>
   );
 }
