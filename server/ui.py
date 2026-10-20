@@ -96,8 +96,8 @@ def track_energy(project_id: int, conn: sqlite3.Connection = Depends(db),
     from analysis.track import TrackAnalysis
 
     p = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    t = conn.execute("SELECT * FROM media WHERE project_id = ? AND kind = 'track' AND status = 'analyzed'"
-                     " ORDER BY id DESC LIMIT 1", (project_id,)).fetchone()
+    from edit.build import project_tracks
+    t = next(iter(project_tracks(conn, project_id)), None)
     if p is None or t is None:
         raise HTTPException(404, "Треку немає")
     ta = TrackAnalysis.load(settings.library_path / p["slug"] / "analysis" / f"{t['id']}_track.json")
@@ -121,8 +121,8 @@ def track_audio(project_id: int, conn: sqlite3.Connection = Depends(db), setting
     """Сам трек — щоб прослухати вибраний шматок перед перемонтажем."""
     import mimetypes
 
-    t = conn.execute("SELECT * FROM media WHERE project_id = ? AND kind = 'track' ORDER BY id DESC LIMIT 1",
-                     (project_id,)).fetchone()
+    from edit.build import project_tracks
+    t = next(iter(project_tracks(conn, project_id, analyzed=False)), None)
     if t is None:
         raise HTTPException(404, "Треку немає")
     path = settings.library_path / t["original_path"]

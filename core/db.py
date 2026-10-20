@@ -265,6 +265,27 @@ MIGRATIONS: list[str] = [
         created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
     """,
+    # 12 — бібліотека музики для підбору треку (папка music/ і «Музика» в Drive)
+    """
+    CREATE TABLE music_tracks (
+        id          INTEGER PRIMARY KEY,
+        path        TEXT NOT NULL UNIQUE,
+        size        INTEGER NOT NULL,
+        mtime       REAL NOT NULL,
+        source      TEXT NOT NULL DEFAULT 'folder',
+        title       TEXT,
+        artist      TEXT,
+        duration    REAL,
+        tempo       REAL,
+        energy      REAL,
+        energy_peak REAL,
+        drops       INTEGER,
+        choruses    INTEGER,
+        status      TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'analyzed', 'failed', 'missing')),
+        error       TEXT,
+        added_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    """,
 ]
 
 

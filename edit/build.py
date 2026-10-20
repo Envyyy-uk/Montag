@@ -271,6 +271,15 @@ def render_audio(settings: Settings, conn: sqlite3.Connection, tl: Timeline, out
     tl.params["track_gain_db"] = report["master_db"]
 
 
+def project_tracks(conn: sqlite3.Connection, project_id: int, analyzed: bool = True) -> list[sqlite3.Row]:
+    """Треки проєкту: спершу вибраний (з бібліотеки музики), далі — найновіший."""
+    row = conn.execute("SELECT settings FROM projects WHERE id = ?", (project_id,)).fetchone()
+    pinned = json.loads((row["settings"] if row else None) or "{}").get("track_media_id")
+    rows = conn.execute("SELECT * FROM media WHERE project_id = ? AND kind = 'track'"
+                        + (" AND status = 'analyzed'" if analyzed else "") + " ORDER BY id DESC", (project_id,)).fetchall()
+    return sorted(rows, key=lambda r: r["id"] != pinned)
+
+
 def clip_size(settings: Settings, params: dict) -> tuple[int, int]:
     from render.frame import CLIP_ASPECTS, size_for
     aspect = params.get("aspect") if params.get("aspect") in CLIP_ASPECTS else "16:9"
@@ -330,8 +339,7 @@ def edit_project(conn: sqlite3.Connection, settings: Settings, payload: dict,
     project = conn.execute("SELECT * FROM projects WHERE id = ?", (payload["project_id"],)).fetchone()
     if project is None:
         return
-    tracks = conn.execute("SELECT * FROM media WHERE project_id = ? AND kind = 'track' AND status = 'analyzed'"
-                          " ORDER BY id DESC", (project["id"],)).fetchall()
+    tracks = project_tracks(conn, project["id"])
     if not tracks:
         conn.execute("UPDATE projects SET status = 'needs_track' WHERE id = ?", (project["id"],))
         log.warning("проєкт %s: немає треку для кліпу", project["id"])

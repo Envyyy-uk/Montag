@@ -21,7 +21,7 @@ Handler = Callable[..., str | None]
 def default_handlers() -> dict[str, Handler]:
     from analysis import scoring
     from edit import build, davinci, verticals
-    from sources import gdrive
+    from sources import gdrive, music
 
     return {"prepare_media": stages.prepare_media, "analyze_media": stages.analyze_media,
             "analyze_track": stages.analyze_track,
@@ -29,7 +29,8 @@ def default_handlers() -> dict[str, Handler]:
             "edit_project": build.edit_project, "style_test": stages.style_test,
             "export_davinci": davinci.export_davinci, "vertical_project": verticals.vertical_project,
             "drive_fetch": gdrive.drive_fetch, "drive_create_folder": gdrive.drive_create_folder,
-            "drive_upload": gdrive.drive_upload}
+            "drive_upload": gdrive.drive_upload,
+            "analyze_music": music.analyze_music, "drive_music_fetch": music.drive_music_fetch}
 
 
 class Worker:
@@ -45,6 +46,7 @@ class Worker:
         from sources.gdrive import DrivePoller
         self.drive = DrivePoller(settings)
         self._last_drive_poll = 0.0
+        self._last_music_scan = 0.0
         from core.power import KeepAwake
         self.awake = KeepAwake()
         self._stop = threading.Event()
@@ -59,6 +61,13 @@ class Worker:
                 self.drive.poll(conn)
             except Exception as exc:  # noqa: BLE001 — без інтернету Drive просто чекає
                 log.warning("Google Drive недоступний: %s", exc)
+        if time.monotonic() - self._last_music_scan >= 60:
+            self._last_music_scan = time.monotonic()
+            from sources import music
+            try:
+                music.scan(conn, self.settings)  # нові треки в music/ → аналіз
+            except OSError as exc:
+                log.warning("папка музики: %s", exc)
         stages.auto_queue_idle(conn, self.settings.idle_minutes_before_edit)
         # поки в черзі є робота — Windows не засинає; порожня черга — звичайна поведінка
         busy = conn.execute("SELECT 1 FROM jobs WHERE status IN ('queued', 'running') LIMIT 1").fetchone()

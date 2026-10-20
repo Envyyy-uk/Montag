@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     # Шляхи
     library_dir: Path = Path("library")
     inbox_dir: Path = Path("inbox")
+    music_dir: Path = Path("music")           # бібліотека треків для підбору музики
+    drive_music_folder: str = "Музика"        # папка з треками всередині DRIVE_ROOT_FOLDER
     db_path: Path = Path("library/auto-editor.sqlite3")
 
     # Сервер
@@ -142,6 +144,10 @@ class Settings(BaseSettings):
         return self.resolve(self.inbox_dir)
 
     @property
+    def music_path(self) -> Path:
+        return self.resolve(self.music_dir)
+
+    @property
     def taste_path(self) -> Path:
         return self.resolve(self.taste_file)
 
@@ -154,7 +160,7 @@ class Settings(BaseSettings):
         return self.resolve(self.db_path)
 
     def ensure_dirs(self) -> None:
-        for p in (self.library_path, self.inbox_path, self.database_path.parent):
+        for p in (self.library_path, self.inbox_path, self.database_path.parent, self.music_path):
             p.mkdir(parents=True, exist_ok=True)
 
 

@@ -34,8 +34,8 @@ def _track_audio(conn, settings: Settings, project, duration: float) -> np.ndarr
     from analysis.track import TrackAnalysis
     from edit.track_window import best_window
 
-    row = conn.execute("SELECT * FROM media WHERE project_id = ? AND kind = 'track' AND status = 'analyzed'"
-                       " ORDER BY id DESC", (project["id"],)).fetchone()
+    from edit.build import project_tracks
+    row = next(iter(project_tracks(conn, project["id"])), None)
     if row is None:
         return None
     ta = TrackAnalysis.load(settings.library_path / project["slug"] / "analysis" / f"{row['id']}_track.json")

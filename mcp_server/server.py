@@ -181,6 +181,17 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
         """Прибрати завдання з черги: скасувати те, що чекає, зупинити те, що йде, сховати помилку. Відео не чіпає."""
         return await api.delete(f"/api/jobs/{job_id}")
 
+    @mcp.tool()
+    async def suggest_music(project_id: int, use_ai: bool = True) -> dict:
+        """Підбір музики під відео: 3 треки з бібліотеки людини (з поясненням і найкращим шматком) +
+        ідеї нових пісень з посиланнями на SoundCloud. З AI — один текстовий запит у Gemini (~$0.005)."""
+        return await api.post(f"/api/projects/{project_id}/music-suggest", {"use_ai": use_ai})
+
+    @mcp.tool()
+    async def use_music(project_id: int, track_id: int, rerender: bool = False) -> dict:
+        """Взяти трек з бібліотеки для кліпу. rerender=true — одразу перемонтувати (спитай людину перед цим)."""
+        return await api.post(f"/api/projects/{project_id}/music/{track_id}/use", {"rerender": rerender})
+
     # ---------- правки словами ----------
 
     @mcp.tool()

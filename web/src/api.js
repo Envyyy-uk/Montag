@@ -46,7 +46,7 @@ export const JOB_LABELS = {
   prepare_media: "Завантаження", analyze_media: "Аналіз", analyze_track: "Аналіз треку",
   score_project: "AI-оцінка", poll_batch: "Чекаю Gemini", edit_project: "Монтаж", vertical_project: "Вертикалі",
   export_davinci: "DaVinci", style_test: "Тест стилю", drive_fetch: "З Google Drive", drive_upload: "У Drive",
-  drive_create_folder: "Папка в Drive",
+  drive_create_folder: "Папка в Drive", analyze_music: "Аналіз треку бібліотеки", drive_music_fetch: "Музика з Drive",
 };
 export const PROJECT_STATUS = {
   collecting: "чекає", queued: "у черзі", scoring: "аналіз", awaiting_confirm: "чекає підтвердження",

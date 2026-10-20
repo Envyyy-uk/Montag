@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sqlite3
@@ -109,6 +110,10 @@ def ingest_file(conn: sqlite3.Connection, library: Path, project: sqlite3.Row, s
     media_id = cur.lastrowid
     conn.execute("UPDATE projects SET last_media_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),"
                  " updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", (project["id"],))
+    if kind == "track":  # свіжо доданий трек стає головним (знімаємо вибір з бібліотеки)
+        st = json.loads(conn.execute("SELECT settings FROM projects WHERE id = ?", (project["id"],)).fetchone()[0] or "{}")
+        if st.pop("track_media_id", None) is not None:
+            conn.execute("UPDATE projects SET settings = ? WHERE id = ?", (json.dumps(st, ensure_ascii=False), project["id"]))
     queue.enqueue(conn, "prepare_media", {"media_id": media_id}, project_id=project["id"])
     row = conn.execute("SELECT * FROM media WHERE id = ?", (media_id,)).fetchone()
     return IngestResult(row, True)

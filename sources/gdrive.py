@@ -232,18 +232,27 @@ class DrivePoller:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._seen: dict[str, tuple[int | None, str | None]] = {}
+        self._music_seen: dict = {}
+
+    def _poll_music(self, conn, drive, root: str) -> None:
+        from sources import music
+        try:
+            music.poll_drive(conn, self.settings, drive, music_folder(conn, self.settings, drive, root), self._music_seen)
+        except Exception as exc:  # noqa: BLE001 — музика не має ламати прийом відео
+            log.warning("Drive «%s»: %s", self.settings.drive_music_folder, exc)
 
     def poll(self, conn: sqlite3.Connection) -> list[str]:
         drive = get_drive(self.settings)
         if drive is None:
             return []
         root = root_folder(conn, self.settings, drive)
+        self._poll_music(conn, drive, root)
         folders = _state(conn, "drive_projects")
         by_folder = {v["id"]: int(k) for k, v in folders.items()}
         queued, alive = [], set()
         for f in drive.list_children(root):
-            if not f.is_folder:
-                continue
+            if not f.is_folder or f.name == self.settings.drive_music_folder:
+                continue  # «Музика» — бібліотека треків, а не проєкт
             pid = by_folder.get(f.id)
             if pid is None:  # папку створили з телефона — новий проєкт (або вже наявний з такою назвою)
                 try:
@@ -270,6 +279,15 @@ class DrivePoller:
         for gone in set(self._seen) - alive:
             self._seen.pop(gone, None)
         return queued
+
+
+def music_folder(conn: sqlite3.Connection, settings: Settings, drive: DriveAPI, root: str) -> str:
+    st = _state(conn, "drive_music_folder")
+    if st.get("name") == settings.drive_music_folder and st.get("id"):
+        return st["id"]
+    fid = drive.find_folder(settings.drive_music_folder, root) or drive.create_folder(settings.drive_music_folder, root)
+    _save_state(conn, "drive_music_folder", {"name": settings.drive_music_folder, "id": fid})
+    return fid
 
 
 def drive_fetch(conn: sqlite3.Connection, settings: Settings, payload: dict, progress) -> None:

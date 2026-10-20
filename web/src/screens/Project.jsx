@@ -62,7 +62,9 @@ export default function Project() {
         <button className="pill rec" onClick={async () => { if (await ask("Почати монтаж? Якщо є ключ Gemini — спершу AI-оцінка кадрів (покаже ціну, якщо більше $1).")) act(() => api.post(`/api/projects/${id}/edit`), "Монтую"); }}>● Монтувати</button>
       )}
 
-      {ov.tracks > 0 && <EnergyStrip id={id} onSaved={(m) => { setToast(m); refresh(); }} />}
+      <MusicBox id={id} onDone={(m) => { setToast(m); refresh(); }} />
+
+      {ov.tracks > 0 && <EnergyStrip key={ov.tracks} id={id} onSaved={(m) => { setToast(m); refresh(); }} />}
 
       {style && (
         <Glass className="stack">
@@ -316,6 +318,80 @@ function Versions({ id, onChange }) {
           ))}
         </div>
       ))}
+    </Glass>
+  );
+}
+
+/** Підбір музики: 3 треки з твоєї бібліотеки під це відео + ідеї нових пісень (SoundCloud). */
+function MusicBox({ id, onDone }) {
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [lib, setLib] = useState(null);
+  const [playing, setPlaying] = useState(null);
+  const audio = useRef(null);
+  useEffect(() => {
+    api.get(`/api/projects/${id}/music-suggest`).then(setRes).catch(() => {});
+    api.get("/api/music").then(setLib).catch(() => {});
+    return () => audio.current?.pause();
+  }, [id]);
+  const run = async () => {
+    setBusy(true);
+    try { setRes(await api.post(`/api/projects/${id}/music-suggest`, { use_ai: true })); }
+    catch (e) { onDone(e.message); }
+    setBusy(false);
+  };
+  const play = (p) => {
+    const a = audio.current;
+    if (playing === p.track_id) { a.pause(); setPlaying(null); return; }
+    a.src = `/api/music/${p.track_id}/audio`;
+    a.currentTime = p.fragment?.start || 0;
+    a.play().then(() => setPlaying(p.track_id)).catch(() => {});
+    a.ontimeupdate = () => { if (p.fragment && a.currentTime >= p.fragment.end) { a.pause(); setPlaying(null); } };
+  };
+  const take = async (p) => {
+    audio.current?.pause(); setPlaying(null);
+    if (!(await ask(`Взяти «${p.title}» для кліпу і перемонтувати?`))) return;
+    try { await api.post(`/api/projects/${id}/music/${p.track_id}/use`, { rerender: true }); onDone(`«${p.title}» — перемонтовую`); }
+    catch (e) { onDone(e.message); }
+  };
+  const empty = lib && lib.tracks.filter((t) => t.status === "analyzed").length === 0;
+  return (
+    <Glass className="stack">
+      <audio ref={audio} preload="none" onPause={() => setPlaying(null)} />
+      <div className="row spread">
+        <div className="label">Музика</div>
+        <button className="pill small primary" disabled={busy || empty} onClick={run}>{busy ? "Підбираю…" : res ? "↻ Підібрати ще раз" : "🎵 Підібрати"}</button>
+      </div>
+      {empty && (
+        <div className="faint" style={{ fontSize: 13 }}>
+          Бібліотека порожня. Поклади треки (mp3/m4a/wav) у папку <span className="mono">{lib.folder}</span> на ноутбуці
+          або в Google Drive → «Автомонтаж» → «{lib.drive_folder}». Програма проаналізує їх сама.
+        </div>
+      )}
+      {res && res.picks.map((p, i) => (
+        <div key={p.track_id} className="stack" style={{ gap: 4, paddingTop: 8, borderTop: i ? "1px solid rgba(255,255,255,.07)" : 0 }}>
+          <div><b>{p.title}</b>{p.artist && <span className="muted"> — {p.artist}</span>}
+            <span className="faint mono" style={{ fontSize: 11 }}> · {p.tempo} BPM · {fmtTime(p.duration)}</span></div>
+          <div className="faint" style={{ fontSize: 13 }}>{p.reason}</div>
+          <div className="row">
+            <button className="pill small" onClick={() => play(p)}>{playing === p.track_id ? "■" : "▶"} {p.fragment ? `${fmtTime(p.fragment.start)}–${fmtTime(p.fragment.end)}` : ""}</button>
+            <button className="pill small primary" onClick={() => take(p)}>Взяти</button>
+          </div>
+        </div>
+      ))}
+      {res && res.ideas.length > 0 && (
+        <div className="stack" style={{ gap: 4, paddingTop: 8 }}>
+          <div className="label">Ідеї нових пісень</div>
+          {res.ideas.map((x, i) => (
+            <div key={i} className="row spread">
+              <div className="grow"><b>{x.artist} — {x.title}</b><div className="faint" style={{ fontSize: 12 }}>{x.why}</div></div>
+              <a className="pill small" href={x.soundcloud} target="_blank" rel="noreferrer">SoundCloud ↗</a>
+            </div>
+          ))}
+          <div className="faint" style={{ fontSize: 11 }}>Якщо під треком є «Download» — скачай і кинь у папку музики або в Drive.</div>
+        </div>
+      )}
+      {res?.ai_error && <div className="faint" style={{ fontSize: 11 }}>Без AI ({res.ai_error}) — підбір лише за темпом і енергією.</div>}
     </Glass>
   );
 }
