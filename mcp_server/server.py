@@ -182,6 +182,14 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
         return out
 
     @mcp.tool()
+    async def event_styles(event: str | None = None, style_id: str | None = None, reset: bool = False) -> list[dict]:
+        """Який стиль ставиться сам для кожного типу події (концерт, подорож…). З event і style_id — змінити;
+        з event і reset=true — повернути вбудований вибір. Без аргументів — лише показати."""
+        if event and (style_id or reset):
+            return await api.put("/api/styles/events", {"event": event, "style_id": None if reset else style_id})
+        return await api.get("/api/styles/events")
+
+    @mcp.tool()
     async def taste() -> dict:
         """Смак: загальна інструкція і правила «назавжди» (origin=mcp — додані через Claude)."""
         t = await api.get("/api/taste")

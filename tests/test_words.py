@@ -222,3 +222,24 @@ def test_style_by_words_local_flow(settings):
         assert client.post(f"/api/styles/drafts/{st['id']}/save").status_code == 200
         assert st["id"] in {s["id"] for s in client.get("/api/styles").json()}
         assert client.post("/api/styles/generate", json={"text": "щось абстрактне"}).status_code == 422
+
+
+def test_event_style_mapping_overrides_builtin(settings):
+    from fastapi.testclient import TestClient
+
+    from core.db import open_db
+    from edit import style_auto
+    from server.app import create_app
+    with TestClient(create_app(settings, start_worker=False)) as c:
+        ev = {e["event"]: e for e in c.get("/api/styles/events").json()}
+        assert ev["концерт"]["style_id"] == "minidv-concert" and not ev["концерт"]["mine"]
+        r = c.put("/api/styles/events", json={"event": "концерт", "style_id": "vhs-90s"}).json()
+        got = {e["event"]: e for e in r}["концерт"]
+        assert got["style_id"] == "vhs-90s" and got["mine"] and got["builtin"] == "minidv-concert"
+        conn = open_db(settings.database_path)
+        assert style_auto.style_for_event("концерт", conn) == "vhs-90s"
+        assert style_auto.style_for_event("концерт") == "minidv-concert"
+        assert c.put("/api/styles/events", json={"event": "весілля", "style_id": "clean"}).status_code == 404
+        assert c.put("/api/styles/events", json={"event": "концерт", "style_id": "nope"}).status_code == 404
+        r = c.put("/api/styles/events", json={"event": "концерт", "style_id": None}).json()
+        assert {e["event"]: e for e in r}["концерт"]["style_id"] == "minidv-concert"

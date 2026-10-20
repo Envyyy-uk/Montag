@@ -16,7 +16,18 @@ CONFIDENT_SHARE = 0.7
 CONFIDENT_LEVEL = 0.7
 
 
-def style_for_event(event: str) -> str:
+def event_map(conn: sqlite3.Connection | None) -> dict[str, str]:
+    """Твій вибір «тип події → стиль» (екран «Стилі»). Має пріоритет над вбудованими."""
+    if conn is None:
+        return {}
+    row = conn.execute("SELECT value FROM settings WHERE key = 'event_styles'").fetchone()
+    return json.loads(row["value"]) if row else {}
+
+
+def style_for_event(event: str, conn: sqlite3.Connection | None = None) -> str:
+    mine = event_map(conn).get(event)
+    if mine and any(s.id == mine and not s.data.get("draft") for s in list_styles()):
+        return mine
     for s in list_styles():
         if not s.data.get("draft") and event in s.data.get("event_types", []):
             return s.id
@@ -37,7 +48,7 @@ def detect(conn: sqlite3.Connection, project_id: int) -> dict | None:
     share = weight[event] / total
     level = sum(conf[event]) / len(conf[event])
     sure = share >= CONFIDENT_SHARE and level >= CONFIDENT_LEVEL
-    style_id = style_for_event(event)
+    style_id = style_for_event(event, conn)
     others = sorted((e for e in weight if e != event), key=lambda e: -weight[e])
     if sure:
         reason = f"Схоже на «{event}» (впевненість {level:.0%}) — стиль поставлено автоматично."

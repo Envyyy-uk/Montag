@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Glass, Toast, usePoll } from "../components/ui.jsx";
 
 export default function Styles() {
   const [styles, , setStyles] = usePoll(() => api.get("/api/styles"), 5000);
   const [drafts, , setDrafts] = usePoll(() => api.get("/api/styles/drafts"), 5000);
+  const [events, setEvents] = useState(null);
+  useEffect(() => { api.get("/api/styles/events").then(setEvents).catch(() => {}); }, []);
   const [open, setOpen] = useState(null);
   const [text, setText] = useState("");
   const [toast, setToast] = useState("");
@@ -24,6 +26,24 @@ export default function Styles() {
             onClick={() => act(async () => { await api.post("/api/styles/generate", { text }); setText(""); }, "Чернетка готова — рендерю тест")}>↑</button>
         </div>
       </Glass>
+
+      {events && styles && (
+        <Glass className="stack">
+          <div className="label">Стиль для типу події</div>
+          <div className="faint" style={{ fontSize: 13 }}>AI визначає, що на відео, і ставить цей стиль сам.</div>
+          {events.map((e) => (
+            <div key={e.event} className="row">
+              <div className="grow">{e.event}</div>
+              <select className="field" style={{ maxWidth: 200 }} value={e.mine ? e.style_id : ""}
+                onChange={(ev) => act(async () => setEvents(await api.put("/api/styles/events",
+                  { event: e.event, style_id: ev.target.value || null })), "Збережено")}>
+                <option value="">авто ({(styles.find((x) => x.id === e.builtin) || {}).name || e.builtin})</option>
+                {styles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </Glass>
+      )}
 
       {(drafts || []).map((d) => (
         <StyleCard key={d.id} s={{ ...d, tests: { 1: true, 2: true, 3: true } }} draft open={open === d.id} onToggle={() => setOpen(open === d.id ? null : d.id)}

@@ -32,6 +32,11 @@ class ProjectStyle(BaseModel):
     style_id: str
 
 
+class EventStyle(BaseModel):
+    event: str
+    style_id: str | None = None  # None — повернути вбудований вибір
+
+
 def test_path(settings: Settings, style_id: str, level: int):
     return settings.library_path / "style_tests" / style_id / f"level_{level}.mp4"
 
@@ -83,3 +88,36 @@ def set_project_style(project_id: int, body: ProjectStyle, conn: sqlite3.Connect
         raise HTTPException(404, str(exc)) from exc
     conn.execute("UPDATE projects SET style_id = ? WHERE id = ?", (body.style_id, project_id))
     return {"project_id": project_id, "style_id": body.style_id}
+
+
+@router.get("/styles/events")
+def event_styles(conn: sqlite3.Connection = Depends(db)) -> list[dict]:
+    """Для кожного типу події — який стиль поставиться автоматично і чи це твій вибір."""
+    from analysis.scoring import EVENT_TYPES
+    from edit import style_auto
+    mine = style_auto.event_map(conn)
+    return [{"event": e, "style_id": style_auto.style_for_event(e, conn), "builtin": style_auto.style_for_event(e),
+             "mine": e in mine} for e in EVENT_TYPES]
+
+
+@router.put("/styles/events")
+def set_event_style(body: EventStyle, conn: sqlite3.Connection = Depends(db)) -> list[dict]:
+    import json
+
+    from analysis.scoring import EVENT_TYPES
+    from edit import style_auto
+    if body.event not in EVENT_TYPES:
+        raise HTTPException(404, f"Невідомий тип події. Є: {', '.join(EVENT_TYPES)}")
+    if body.style_id is not None:
+        try:
+            get_style(body.style_id)
+        except StyleError as exc:
+            raise HTTPException(404, str(exc)) from exc
+    mine = style_auto.event_map(conn)
+    if body.style_id is None:
+        mine.pop(body.event, None)
+    else:
+        mine[body.event] = body.style_id
+    conn.execute("INSERT INTO settings(key, value) VALUES ('event_styles', ?)"
+                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(mine, ensure_ascii=False),))
+    return event_styles(conn)
