@@ -43,23 +43,70 @@ export default function AddVideo() {
     } catch (e) { setToast(e.message); }
   };
 
-  const upload = (list) => {
-    const items = Array.from(list).map((file) => ({ file, progress: 0, state: "wait" }));
-    setFiles((f) => [...f, ...items]);
-    items.forEach((it) => {
-      const up = new tus.Upload(it.file, {
-        endpoint: "/api/uploads",
-        retryDelays: [0, 2000, 5000, 10000, 30000],   // обрив зв'язку — докачуємо
-        chunkSize: 16 * 1024 * 1024,
-        metadata: { filename: it.file.name, project_id: pid },
-        onProgress: (sent, total) => update(it, { progress: sent / total, state: "up" }),
-        onSuccess: () => update(it, { progress: 1, state: "done" }),
-        onError: (e) => update(it, { state: "error", error: String(e.message || e).slice(0, 120) }),
-      });
-      up.findPreviousUploads().then((prev) => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); });
-    });
+  // Черга завантажень: по 2 файли одночасно, після обриву — довгі повтори й кнопка «Продовжити».
+  const queueRef = useRef([]);
+  const [, bump] = useState(0);
+  const wake = useRef(null);
+  const PARALLEL = 2;
+  const sync = () => { setFiles([...queueRef.current]); bump((n) => n + 1); };
+  const update = (it, patch) => { Object.assign(it, patch); sync(); };
+
+  const keepAwake = async (on) => {
+    try {
+      if (on && !wake.current && navigator.wakeLock) wake.current = await navigator.wakeLock.request("screen");
+      if (!on && wake.current) { await wake.current.release(); wake.current = null; }
+    } catch (_) { /* екран усе одно може згаснути — тоді докачаємо після розблокування */ }
   };
-  const update = (it, patch) => setFiles((f) => f.map((x) => (x.file === it.file ? { ...x, ...patch } : x)));
+
+  const pump = () => {
+    const q = queueRef.current;
+    let active = q.filter((x) => x.state === "up").length;
+    for (const it of q) {
+      if (active >= PARALLEL) break;
+      if (it.state !== "wait") continue;
+      active += 1;
+      startOne(it);
+    }
+    keepAwake(q.some((x) => x.state === "up" || x.state === "wait"));
+  };
+
+  const startOne = (it) => {
+    update(it, { state: "up", error: null });
+    const up = new tus.Upload(it.file, {
+      endpoint: "/api/uploads",
+      // обрив зв'язку (блокування телефона, перезапуск програми) — пробуємо ~5 хв, з того самого місця
+      retryDelays: [0, 1000, 3000, 5000, 10000, 15000, 30000, 30000, 60000, 60000, 60000],
+      chunkSize: 16 * 1024 * 1024,
+      metadata: { filename: it.file.name, project_id: it.pid },
+      onProgress: (sent, total) => update(it, { progress: sent / total }),
+      onSuccess: () => { update(it, { progress: 1, state: "done" }); pump(); },
+      onError: () => {
+        update(it, { state: "error", error: "Зв'язок з ноутбуком обірвався. «Продовжити» — докачає з того самого місця." });
+        pump();
+      },
+    });
+    it.tus = up;
+    up.findPreviousUploads().then((prev) => { if (prev.length) up.resumeFromPreviousUpload(prev[0]); up.start(); });
+  };
+
+  const upload = (list) => {
+    queueRef.current.push(...Array.from(list).map((file) => ({ file, pid, progress: 0, state: "wait" })));
+    sync();
+    pump();
+  };
+  const resume = (only) => {
+    for (const it of queueRef.current) if (it.state === "error" && (!only || it === only)) it.state = "wait";
+    sync();
+    pump();
+  };
+  useEffect(() => {
+    // повернувся в застосунок або з'явилась мережа — продовжуємо обірвані самі
+    const again = () => { if (document.visibilityState === "visible") resume(); };
+    window.addEventListener("online", again);
+    document.addEventListener("visibilitychange", again);
+    return () => { window.removeEventListener("online", again); document.removeEventListener("visibilitychange", again); keepAwake(false); };
+  }, []);
+  const failed = files.filter((f) => f.state === "error").length;
   const allDone = files.length > 0 && files.every((f) => f.state === "done");
 
   return (
@@ -104,13 +151,16 @@ export default function AddVideo() {
         </div>
         <input ref={input} type="file" multiple accept="video/*,audio/*,.mp3,.wav,.m4a" hidden disabled={!pid}
           onChange={(e) => { upload(e.target.files); e.target.value = ""; }} />
+        {failed > 0 && <button className="pill primary" onClick={() => resume()}>↻ Продовжити ({failed})</button>}
         {files.map((f, i) => (
           <div key={i} className="file-row">
             <div className="grow" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file.name}</div>
             <span className={`badge ${f.state === "done" ? "done" : f.state === "error" ? "err" : "run"}`}>
-              {f.state === "done" ? "готово" : f.state === "error" ? "помилка" : `${Math.round(f.progress * 100)}%`}
+              {f.state === "done" ? "готово" : f.state === "error" ? "обрив" : f.state === "wait" ? "у черзі" : `${Math.round(f.progress * 100)}%`}
             </span>
-            <div style={{ gridColumn: "1 / -1" }}>{f.state === "error" ? <span className="faint">{f.error}</span> : <Bar value={f.progress} />}</div>
+            <div style={{ gridColumn: "1 / -1" }}>{f.state === "error"
+              ? <span className="faint">{f.error} <button className="pill small" onClick={() => resume(f)}>Продовжити</button></span>
+              : <Bar value={f.progress} />}</div>
           </div>
         ))}
       </Glass>}
