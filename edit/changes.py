@@ -208,13 +208,15 @@ def build_prompt(text: str, context: dict) -> str:
     ])
 
 
-def parse(conn: sqlite3.Connection, settings, text: str, context: dict, project_id: int | None) -> tuple[dict, str]:
+def parse(conn: sqlite3.Connection, settings, text: str, context: dict, project_id: int | None,
+          quick: bool = False) -> tuple[dict, str]:
     """(зміни, джерело: 'local' | 'gemini'). Кидає LLMUnavailable, якщо локально не зрозуміло, а Gemini недоступний."""
     local = local_parse(text)
     if local:
         return local, "local"
-    from analysis.llm import ask_json
-    data = ask_json(conn, settings, build_prompt(text, context), CHANGES_SCHEMA, "правка словами", project_id)
+    from analysis.llm import PATIENT, QUICK, ask_json
+    data = ask_json(conn, settings, build_prompt(text, context), CHANGES_SCHEMA, "правка словами", project_id,
+                    plan=QUICK if quick else PATIENT)
     return data, "gemini"
 
 

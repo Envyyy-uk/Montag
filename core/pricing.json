@@ -4,6 +4,7 @@
   "models": {
     "_default":               {"input": 1.50, "audio_input": 1.50, "output": 9.00},
     "gemini-flash-latest":    {"input": 1.50, "audio_input": 1.50, "output": 9.00},
+    "gemini-flash-lite-latest": {"input": 0.30, "audio_input": 0.30, "output": 2.50},
     "gemini-3.6-flash":       {"input": 0.75, "audio_input": 0.75, "output": 3.75},
     "gemini-3.5-flash":       {"input": 1.50, "audio_input": 1.50, "output": 9.00},
     "gemini-3.5-flash-lite":  {"input": 0.30, "audio_input": 0.30, "output": 2.50},

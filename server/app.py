@@ -13,6 +13,37 @@ from core.system_check import run_all
 from server import auth, budget, edits, mcp_access, media, music, projects, requests, styles, ui, uploads
 
 
+class RequestRetrier:
+    """Окремий потік, щоб правки, які чекають на Gemini, не стояли в черзі за довгими рендерами."""
+
+    def __init__(self, settings: Settings, every: float = 60):
+        import threading
+        self.settings, self.every, self._stop = settings, every, threading.Event()
+        self._thread = threading.Thread(target=self._run, name="request-retry", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=30)
+
+    def _run(self) -> None:
+        import logging
+
+        from server.requests import retry_waiting
+        while not self._stop.wait(self.every):
+            try:
+                conn = open_db(self.settings.database_path)
+                try:
+                    if conn.execute("SELECT 1 FROM edit_requests WHERE parse_state = 'waiting' AND status = 'pending' LIMIT 1").fetchone():
+                        retry_waiting(conn, self.settings)
+                finally:
+                    conn.close()
+            except Exception:  # noqa: BLE001 — фон не має падати
+                logging.getLogger(__name__).exception("повтор правок")
+
+
 def create_app(settings: Settings | None = None, start_worker: bool | None = None) -> FastAPI:
     settings = settings or get_settings()
     if start_worker is None:
@@ -27,9 +58,12 @@ def create_app(settings: Settings | None = None, start_worker: bool | None = Non
             from worker.runner import Worker
             worker = Worker(settings)
             worker.start()
+            retrier = RequestRetrier(settings)
+            retrier.start()
         yield
         if worker:
             worker.stop()
+            retrier.stop()
 
     from render.looks import register_user_dir
     register_user_dir(settings.user_styles_path)

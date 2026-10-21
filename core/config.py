@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     # Gemini і бюджет
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = "gemini-flash-latest"
+    gemini_fallback_model: str = "gemini-flash-lite-latest"  # коли основна перевантажена (503); порожньо — без запасної
     gemini_thinking_level: str = "low"   # порожньо — як за замовчуванням у моделі
     gemini_window_seconds: int = Field(180, ge=20)
     gemini_poll_seconds: int = Field(60, ge=5)

@@ -286,6 +286,11 @@ MIGRATIONS: list[str] = [
         added_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
     """,
+    # 13 — правка, яку Gemini не зміг розібрати через перевантаження, чекає й повторюється у фоні
+    """
+    ALTER TABLE edit_requests ADD COLUMN parse_state TEXT CHECK (parse_state IN ('waiting', 'failed'));
+    ALTER TABLE edit_requests ADD COLUMN retry_until TEXT;
+    """,
 ]
 
 

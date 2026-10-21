@@ -92,25 +92,84 @@ def create_request(project_id: int, body: EditText, conn: sqlite3.Connection = D
     try:
         changes, source = ch_mod.parse(conn, settings, body.text, _context(conn, settings, project), project_id)
     except LLMUnavailable as exc:
+        if exc.overloaded:  # чекає в черзі: фон пробує раз на хвилину до години, потім push
+            rid = conn.execute(
+                "INSERT INTO edit_requests(project_id, text, changes, source, parse_state, retry_until)"
+                " VALUES (?, ?, '{}', 'gemini', 'waiting', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?))",
+                (project_id, body.text, f"+{RETRY_FOR_MINUTES} minutes")).lastrowid
+            return _out(conn.execute("SELECT * FROM edit_requests WHERE id = ?", (rid,)).fetchone())
         raise HTTPException(422, f"Не вдалося зрозуміти правку без Gemini ({exc}). Спробуй простіше: "
                                  "«більше натовпу», «швидше», «без вставок», «45 секунд».") from exc
+    rid = conn.execute("INSERT INTO edit_requests(project_id, text, changes, source) VALUES (?, ?, ?, ?)",
+                       (project_id, body.text, json.dumps(_valid(changes), ensure_ascii=False), source)).lastrowid
+    return _out(conn.execute("SELECT * FROM edit_requests WHERE id = ?", (rid,)).fetchone())
+
+
+RETRY_FOR_MINUTES = 60
+WAITING = ("Gemini зараз перевантажений — правка в черзі. Спробую ще раз за хвилину (до години) "
+           "і пришлю сповіщення, коли зрозумію.")
+FAILED = "Gemini так і не відповів за годину. Повтори правку або напиши коротко: «більше натовпу», «швидше»."
+
+
+def _valid(changes: dict) -> dict:
     if "style_id" in changes:
         try:
             get_style(changes["style_id"])
         except StyleError:
             changes.pop("style_id")
-    rid = conn.execute("INSERT INTO edit_requests(project_id, text, changes, source) VALUES (?, ?, ?, ?)",
-                       (project_id, body.text, json.dumps(changes, ensure_ascii=False), source)).lastrowid
-    return {"id": rid, "summary": changes.get("summary", ""), "changes": changes, "source": source,
-            "question": QUESTION}
+    return changes
+
+
+def _out(r) -> dict:
+    changes = json.loads(r["changes"])
+    state = r["parse_state"] or "ready"
+    return {"id": r["id"], "text": r["text"], "status": r["status"], "source": r["source"], "state": state,
+            "waiting": state == "waiting", "summary": changes.get("summary", ""), "changes": changes,
+            "question": QUESTION if state == "ready" else None,
+            "message": WAITING if state == "waiting" else FAILED if state == "failed" else None,
+            "created_at": r["created_at"]}
+
+
+def retry_waiting(conn: sqlite3.Connection, settings: Settings) -> list[int]:
+    """Фон: ще раз розібрати правки, що чекають на Gemini. Повертає id розібраних."""
+    from core import notify
+
+    done = []
+    for r in conn.execute("SELECT * FROM edit_requests WHERE parse_state = 'waiting' AND status = 'pending' ORDER BY id").fetchall():
+        project = conn.execute("SELECT * FROM projects WHERE id = ?", (r["project_id"],)).fetchone()
+        try:
+            changes, source = ch_mod.parse(conn, settings, r["text"], _context(conn, settings, project),
+                                           project["id"], quick=True)
+        except LLMUnavailable as exc:
+            expired = conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > ?", (r["retry_until"],)).fetchone()[0]
+            if exc.overloaded and not expired:
+                continue
+            conn.execute("UPDATE edit_requests SET parse_state = 'failed' WHERE id = ?", (r["id"],))
+            notify.send(conn, settings, f"Правка не вдалась: {project['name']}", f"«{r['text'][:60]}» — {FAILED}",
+                        f"/project/{project['id']}")
+            continue
+        changes = _valid(changes)
+        conn.execute("UPDATE edit_requests SET changes = ?, source = ?, parse_state = NULL WHERE id = ?",
+                     (json.dumps(changes, ensure_ascii=False), source, r["id"]))
+        notify.send(conn, settings, f"Правку зрозумів: {project['name']}",
+                    f"{changes.get('summary') or r['text'][:80]} — підтверди в застосунку", f"/project/{project['id']}")
+        done.append(r["id"])
+    return done
 
 
 @router.get("/projects/{project_id}/requests")
 def list_requests(project_id: int, conn: sqlite3.Connection = Depends(db)) -> list[dict]:
     _project(conn, project_id)
-    return [{"id": r["id"], "text": r["text"], "status": r["status"], "source": r["source"],
-             "summary": json.loads(r["changes"]).get("summary", ""), "created_at": r["created_at"]}
-            for r in conn.execute("SELECT * FROM edit_requests WHERE project_id = ? ORDER BY id DESC", (project_id,))]
+    return [_out(r) for r in conn.execute("SELECT * FROM edit_requests WHERE project_id = ? ORDER BY id DESC",
+                                          (project_id,))]
+
+
+@router.get("/requests/{request_id}")
+def get_request(request_id: int, conn: sqlite3.Connection = Depends(db)) -> dict:
+    r = conn.execute("SELECT * FROM edit_requests WHERE id = ?", (request_id,)).fetchone()
+    if r is None:
+        raise HTTPException(404, "Правку не знайдено")
+    return _out(r)
 
 
 def apply_here(conn, settings: Settings, project, changes: dict) -> list[str]:
@@ -146,6 +205,10 @@ def apply_request(request_id: int, body: Scope, conn: sqlite3.Connection = Depen
         raise HTTPException(404, "Правку не знайдено")
     if req["status"] != "pending":
         raise HTTPException(409, "Правку вже застосовано")
+    if req["parse_state"] == "waiting":
+        raise HTTPException(409, "Правка ще чекає на Gemini — підтвердиш, коли прийде сповіщення")
+    if req["parse_state"] == "failed":
+        raise HTTPException(409, FAILED)
     project = _project(conn, req["project_id"])
     changes = json.loads(req["changes"])
     rule_id = None

@@ -199,6 +199,8 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
         """Правка словами («більше натовпу», «швидше на приспіві», «без вставок»). Повертає, що зрозуміла
         програма. Потім спитай людину «тільки тут чи назавжди?» і виклич apply_change."""
         r = await api.post(f"/api/projects/{project_id}/requests", {"text": text})
+        if r.get("waiting"):
+            return {"request_id": r["id"], "стан": "чекає на Gemini", "повідомлення": r["message"]}
         return {"request_id": r["id"], "зрозуміла_так": r["summary"], "зміни": r["changes"], "питання": r["question"]}
 
     @mcp.tool()

@@ -130,6 +130,22 @@ function EditBox({ id, onDone }) {
   const [text, setText] = useState("");
   const [answer, setAnswer] = useState(null);
   const [busy, setBusy] = useState(false);
+  // правка, що чекає на Gemini або вже розібрана й чекає «тільки тут / назавжди» (за останню добу)
+  useEffect(() => {
+    api.get(`/api/projects/${id}/requests`).then((list) => {
+      const day = Date.now() - 24 * 3600 * 1000;
+      const r = list.find((x) => x.status === "pending" && x.state !== "failed" && Date.parse(x.created_at) > day);
+      if (r) setAnswer(r);
+    }).catch(() => {});
+  }, [id]);
+  useEffect(() => {
+    if (!answer?.waiting) return;
+    const t = setInterval(() => api.get(`/api/requests/${answer.id}`).then((r) => {
+      setAnswer(r.state === "failed" ? null : r);
+      if (r.state === "failed") onDone(r.message);
+    }).catch(() => {}), 15000);
+    return () => clearInterval(t);
+  }, [answer?.id, answer?.waiting]);
   const send = async () => {
     setBusy(true);
     try { setAnswer(await api.post(`/api/projects/${id}/requests`, { text })); setText(""); }
@@ -150,7 +166,16 @@ function EditBox({ id, onDone }) {
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && text.trim() && send()} />
         <button className="round" aria-label="Надіслати правку" disabled={!text.trim() || busy} onClick={send}>↑</button>
       </div>
-      {answer && (
+      {answer?.waiting && (
+        <div className="answer stack">
+          <div>⏳ «{answer.text}»</div>
+          <div className="muted" style={{ fontSize: 14 }}>{answer.message}</div>
+          <div className="row">
+            <button className="pill small" onClick={() => api.post(`/api/requests/${answer.id}/reject`).then(() => setAnswer(null))}>Скасувати</button>
+          </div>
+        </div>
+      )}
+      {answer && !answer.waiting && (
         <div className="answer stack">
           <div>{answer.summary}</div>
           <div className="muted" style={{ fontSize: 14 }}>{answer.question}</div>
