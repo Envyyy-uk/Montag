@@ -59,5 +59,9 @@ class FakeDrive:
         self.deleted.append(file_id)
         self.items.pop(file_id)
 
+    def trash(self, file_id):
+        self.trashed = getattr(self, "trashed", []) + [file_id]
+        self.items.pop(file_id)
+
     def names_in(self, folder_id):
         return sorted(v["name"] for v in self.items.values() if v["parent"] == folder_id)

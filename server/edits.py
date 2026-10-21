@@ -278,3 +278,46 @@ def delete_edit(edit_id: int, conn: sqlite3.Connection = Depends(db),
     except CleanupError as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"deleted": edit_id, "label": pl.label, "paths": len(pl.files) + len(pl.dirs)}
+
+
+@router.get("/projects/{project_id}/prune-plan")
+def prune_plan(project_id: int, conn: sqlite3.Connection = Depends(db),
+               settings: Settings = Depends(settings_dep)) -> dict:
+    """Скільки старих версій (усе, крім основних) і скільки місця звільниться."""
+    from edit.cleanup import prune_plan as plan_
+    _project(conn, project_id)
+    return plan_(conn, settings, project_id)
+
+
+@router.post("/projects/{project_id}/prune")
+def prune(project_id: int, conn: sqlite3.Connection = Depends(db), settings: Settings = Depends(settings_dep)) -> dict:
+    from edit.cleanup import CleanupError
+    from edit.cleanup import prune as prune_
+    _project(conn, project_id)
+    try:
+        return prune_(conn, settings, project_id)
+    except CleanupError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/projects/{project_id}/delete-plan")
+def project_delete_plan(project_id: int, conn: sqlite3.Connection = Depends(db),
+                        settings: Settings = Depends(settings_dep)) -> dict:
+    """Що станеться при видаленні проєкту: що піде в архів, скільки місця звільниться."""
+    from edit.cleanup import CleanupError, project_plan
+    try:
+        pl = project_plan(conn, settings, project_id)
+    except CleanupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"name": pl["name"], "archive": str(pl["archive"]), "originals": len(pl["originals"]),
+            "keep": [p.name for p in pl["keep"]], "archive_mb": pl["archive_mb"], "freed_mb": pl["freed_mb"]}
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: int, conn: sqlite3.Connection = Depends(db),
+                   settings: Settings = Depends(settings_dep)) -> dict:
+    from edit.cleanup import CleanupError, delete_project as delete_
+    try:
+        return delete_(conn, settings, project_id)
+    except CleanupError as exc:
+        raise HTTPException(409, str(exc)) from exc

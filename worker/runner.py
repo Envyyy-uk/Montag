@@ -29,7 +29,7 @@ def default_handlers() -> dict[str, Handler]:
             "edit_project": build.edit_project, "style_test": stages.style_test,
             "export_davinci": davinci.export_davinci, "vertical_project": verticals.vertical_project,
             "drive_fetch": gdrive.drive_fetch, "drive_create_folder": gdrive.drive_create_folder,
-            "drive_upload": gdrive.drive_upload,
+            "drive_upload": gdrive.drive_upload, "drive_trash": gdrive.drive_trash,
             "analyze_music": music.analyze_music, "drive_music_fetch": music.drive_music_fetch}
 
 

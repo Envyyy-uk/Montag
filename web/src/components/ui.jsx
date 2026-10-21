@@ -114,7 +114,7 @@ export function AskHost() {
   return (
     <div className="ask-backdrop" onClick={() => done(false)} role="dialog" aria-modal="true">
       <div className="glass strong pad stack ask" onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 17 }}>{q.text}</div>
+        <div style={{ fontSize: 17, whiteSpace: "pre-line" }}>{q.text}</div>
         <div className="row">
           <button className="pill primary grow" style={{ justifyContent: "center" }} onClick={() => done(true)}>{q.yes}</button>
           <button className="pill grow" style={{ justifyContent: "center" }} onClick={() => done(false)}>{q.no}</button>

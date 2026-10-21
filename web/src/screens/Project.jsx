@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, fmtTime, JOB_LABELS, money } from "../api.js";
 import { ask, Glass, Toast, usePoll, VhsScreen } from "../components/ui.jsx";
 
@@ -110,6 +110,8 @@ export default function Project() {
       <EditBox id={id} onDone={(m) => { setToast(m); refresh(); }} />
 
       <Versions id={id} onChange={(m) => { setToast(m); refresh(); }} />
+
+      <DeleteProject id={id} onError={setToast} />
 
       {ov.clip && (
         <div className="row wrap">
@@ -285,10 +287,28 @@ function Versions({ id, onChange }) {
     try { await api.post(`/api/edits/${e.id}/main`); onChange(`v${e.version} тепер основна`); setMenu(null); load(); }
     catch (err) { onChange(err.message); }
   };
+  const remove = async (e) => {
+    try {
+      const pl = await api.get(`/api/edits/${e.id}/delete-plan`);
+      if (!(await ask(`Видалити ${pl.label} (~${pl.mb} МБ)? Оригінальні відео лишаються.`, "Видалити", "Скасувати"))) return;
+      await api.del(`/api/edits/${e.id}`); onChange(`${pl.label} видалено`); setMenu(null); load();
+    } catch (err) { onChange(err.message); }
+  };
+  const prune = async () => {
+    try {
+      const pl = await api.get(`/api/projects/${id}/prune-plan`);
+      if (!pl.count) { onChange("Старих версій немає — лишились тільки основні"); return; }
+      if (!(await ask(`Видалити ${pl.count} старих версій (~${pl.mb} МБ)? Основні кліп і вертикалі та оригінали лишаються.`, "Видалити", "Скасувати"))) return;
+      await api.post(`/api/projects/${id}/prune`); onChange(`Видалено ${pl.count} старих версій`); load();
+    } catch (err) { onChange(err.message); }
+  };
   const groups = [["clip", "Кліп"], ["vertical", "Вертикалі"]].map(([k, name]) => [k, name, list.filter((e) => e.kind === k)]);
   return (
     <Glass className="stack" style={{ gap: 4 }}>
-      <div className="label">Версії</div>
+      <div className="row spread">
+        <div className="label">Версії</div>
+        {list.length > 2 && <button className="pill small" onClick={prune}>🗑 Старі версії</button>}
+      </div>
       {groups.filter(([, , items]) => items.length).map(([k, name, items]) => (
         <div key={k}>
           <button className="row spread versions-head" onClick={() => setOpen({ ...open, [k]: !open[k] })}>
@@ -312,6 +332,7 @@ function Versions({ id, onChange }) {
                     <a key={i} className="pill small" href={`/api/edits/${e.id}/reels/${i + 1}`} download>⬇ #{i + 1}</a>
                   ))}
                   {!e.main && <button className="pill small" onClick={() => main(e)}>★ Основна</button>}
+                  {!e.main && <button className="pill small" onClick={() => remove(e)}>🗑 Видалити</button>}
                 </div>
               )}
             </div>
@@ -394,4 +415,21 @@ function MusicBox({ id, onDone }) {
       {res?.ai_error && <div className="faint" style={{ fontSize: 11 }}>Без AI ({res.ai_error}) — підбір лише за темпом і енергією.</div>}
     </Glass>
   );
+}
+
+/** Видалити проєкт: оригінали й основна версія — в архів на ноутбуці, решта видаляється, папка в Drive — у кошик. */
+function DeleteProject({ id, onError }) {
+  const nav = useNavigate();
+  const run = async () => {
+    try {
+      const pl = await api.get(`/api/projects/${id}/delete-plan`);
+      const msg = `Видалити проєкт «${pl.name}»?\n\nВ архів (${pl.archive_mb} МБ): ${pl.originals} оригінальних відео` +
+        (pl.keep.length ? ` і основна версія (${pl.keep.length} файл.)` : "") +
+        ` → ${pl.archive}\n\nВидаляться проксі, аналіз і всі інші версії — звільниться ~${pl.freed_mb} МБ. Папка в Google Drive піде в кошик Drive.`;
+      if (!(await ask(msg, "Видалити", "Скасувати"))) return;
+      await api.del(`/api/projects/${id}`);
+      nav("/");
+    } catch (e) { onError(e.message); }
+  };
+  return <button className="pill small" style={{ alignSelf: "center", opacity: 0.8, marginTop: 24 }} onClick={run}>🗑 Видалити проєкт</button>;
 }

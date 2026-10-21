@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # Шляхи
     library_dir: Path = Path("library")
     inbox_dir: Path = Path("inbox")
+    archive_dir: Path = Path("archive")          # оригінали й основна версія видалених проєктів
     music_dir: Path = Path("music")           # бібліотека треків для підбору музики
     drive_music_folder: str = "Музика"        # папка з треками всередині DRIVE_ROOT_FOLDER
     db_path: Path = Path("library/auto-editor.sqlite3")
@@ -142,6 +143,10 @@ class Settings(BaseSettings):
     @property
     def inbox_path(self) -> Path:
         return self.resolve(self.inbox_dir)
+
+    @property
+    def archive_path(self) -> Path:
+        return self.resolve(self.archive_dir)
 
     @property
     def music_path(self) -> Path:

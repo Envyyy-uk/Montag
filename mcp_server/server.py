@@ -303,4 +303,50 @@ def build_server(api: Api, spend_limit_usd: float = 2.0, codes: Codes | None = N
             codes.restore(code, pending)  # напр. іде рендер — той самий код спрацює пізніше
             raise
 
+    @mcp.tool()
+    async def prepare_delete_project(project_id: int) -> str:
+        """Крок 1 з 2: що станеться при видаленні проєкту (оригінали й основна версія — в архів) і одноразовий код."""
+        pl = await api.get(f"/api/projects/{project_id}/delete-plan")
+        code = codes.issue("delete_project", project_id)
+        return (f"Проєкт «{pl['name']}»: в архів {pl['archive']} підуть {pl['originals']} оригінальних відео"
+                f"{' і основна версія' if pl['keep'] else ''} ({pl['archive_mb']} МБ); решта видаляється (~{pl['freed_mb']} МБ), "
+                f"папка в Google Drive — у кошик Drive. Покажи це людині й дочекайся згоди. "
+                f"Після згоди: delete_project(project_id={project_id}, code=\"{code}\").")
+
+    @mcp.tool()
+    async def delete_project(project_id: int, code: str) -> dict:
+        """Крок 2 з 2: видаляє проєкт кодом з prepare_delete_project (лише після згоди людини)."""
+        try:
+            pending = codes.take(code, "delete_project", project_id)
+        except CodeError as exc:
+            raise ToolError(str(exc)) from exc
+        try:
+            return await api.delete(f"/api/projects/{project_id}")
+        except ToolError:
+            codes.restore(code, pending)
+            raise
+
+    @mcp.tool()
+    async def prepare_prune(project_id: int) -> str:
+        """Крок 1 з 2: скільки старих версій (усе, крім основних) буде видалено і одноразовий код."""
+        pl = await api.get(f"/api/projects/{project_id}/prune-plan")
+        if not pl["count"]:
+            return "Старих версій немає — лишились тільки основні."
+        code = codes.issue("prune", project_id)
+        return (f"Буде видалено {pl['count']} старих версій (~{pl['mb']} МБ); основні й оригінали лишаються. "
+                f"Після згоди людини: prune_versions(project_id={project_id}, code=\"{code}\").")
+
+    @mcp.tool()
+    async def prune_versions(project_id: int, code: str) -> dict:
+        """Крок 2 з 2: видаляє старі версії кодом з prepare_prune."""
+        try:
+            pending = codes.take(code, "prune", project_id)
+        except CodeError as exc:
+            raise ToolError(str(exc)) from exc
+        try:
+            return await api.post(f"/api/projects/{project_id}/prune")
+        except ToolError:
+            codes.restore(code, pending)
+            raise
+
     return mcp

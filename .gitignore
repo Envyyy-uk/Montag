@@ -8,6 +8,7 @@ client_secret*.json
 library/
 inbox/
 music/
+archive/
 *.sqlite3
 *.db
 

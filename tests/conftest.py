@@ -10,6 +10,7 @@ def settings(tmp_path):
         library_dir=tmp_path / "library",
         inbox_dir=tmp_path / "inbox",
         music_dir=tmp_path / "music",
+        archive_dir=tmp_path / "archive",
         db_path=tmp_path / "library" / "test.sqlite3",
         whisper_enabled=False,
         taste_file=tmp_path / "taste.md",

@@ -54,6 +54,7 @@ class DriveAPI(Protocol):
     def download(self, file_id: str, dest: Path, on_progress: Callable[[float], None] | None = None) -> None: ...
     def upload(self, path: Path, parent: str, name: str, mime: str) -> str: ...
     def delete(self, file_id: str) -> None: ...
+    def trash(self, file_id: str) -> None: ...
 
 
 def _q(s: str) -> str:
@@ -114,6 +115,10 @@ class GoogleDrive:
 
     def delete(self, file_id: str) -> None:
         self.svc.files().delete(fileId=file_id).execute()
+
+    def trash(self, file_id: str) -> None:
+        """У кошик Drive (30 днів можна відновити)."""
+        self.svc.files().update(fileId=file_id, body={"trashed": True}).execute()
 
 
 # ---------- вхід ----------
@@ -292,6 +297,13 @@ def music_folder(conn: sqlite3.Connection, settings: Settings, drive: DriveAPI, 
     fid = drive.find_folder(settings.drive_music_folder, root) or drive.create_folder(settings.drive_music_folder, root)
     _save_state(conn, "drive_music_folder", {"name": settings.drive_music_folder, "id": fid})
     return fid
+
+
+def drive_trash(conn: sqlite3.Connection, settings: Settings, payload: dict, progress) -> None:
+    drive = get_drive(settings)
+    if drive is None:
+        return
+    drive.trash(payload["file_id"])
 
 
 def drive_fetch(conn: sqlite3.Connection, settings: Settings, payload: dict, progress) -> None:
