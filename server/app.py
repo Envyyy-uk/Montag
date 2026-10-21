@@ -112,6 +112,12 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = get_settings()
+    if not settings.tailscale_host:
+        from core import tailscale
+        if tailscale.self_ip() is None and tailscale._cli():
+            logging.info("чекаю на Tailscale (до 2 хв), щоб iPhone міг підключитись…")
+            if tailscale.wait_for_ip() is None:
+                logging.warning("Tailscale не запустився — доступ з iPhone буде після перезапуску програми")
     app = create_app(settings)
     servers = []
     for i, ln in enumerate(listeners(settings)):

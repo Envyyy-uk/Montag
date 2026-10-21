@@ -50,6 +50,21 @@ def self_ip(st: dict | None = None) -> str | None:
     return None
 
 
+def wait_for_ip(timeout: float = 120.0, step: float = 3.0, sleep=time.sleep) -> str | None:
+    """При автозапуску Windows програма може стартувати раніше за Tailscale — чекаємо, поки він підніметься."""
+    if not _cli():
+        return None  # Tailscale не встановлено — чекати нічого
+    waited = 0.0
+    while True:
+        st = status(max_age=0)
+        if st and st.get("BackendState", "Running") == "Running" and self_ip(st):
+            return self_ip(st)
+        if waited >= timeout:
+            return None
+        sleep(step)
+        waited += step
+
+
 def dns_name(st: dict | None = None) -> str | None:
     st = st if st is not None else status()
     name = ((st or {}).get("Self") or {}).get("DNSName") or ""

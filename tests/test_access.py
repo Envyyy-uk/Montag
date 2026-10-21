@@ -173,3 +173,15 @@ def test_worker_keeps_awake_while_queue_busy(settings):
     conn.execute("UPDATE jobs SET status = 'done'"); conn.commit()
     w.housekeeping(conn)
     assert not w.awake.active and len(calls) == 2
+
+
+def test_wait_for_tailscale_on_autostart(monkeypatch):
+    states = [None, {"BackendState": "Starting"}, {"BackendState": "Running", "Self": {"TailscaleIPs": ["100.64.0.9"]}}]
+    monkeypatch.setattr(tailscale, "_cli", lambda: "tailscale")
+    monkeypatch.setattr(tailscale, "status", lambda max_age=10.0: states.pop(0) if len(states) > 1 else states[0])
+    naps = []
+    assert tailscale.wait_for_ip(timeout=60, sleep=naps.append) == "100.64.0.9" and len(naps) == 2
+    monkeypatch.setattr(tailscale, "status", lambda max_age=10.0: None)
+    assert tailscale.wait_for_ip(timeout=6, step=3, sleep=lambda s: None) is None
+    monkeypatch.setattr(tailscale, "_cli", lambda: None)
+    assert tailscale.wait_for_ip() is None
