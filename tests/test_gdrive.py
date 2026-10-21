@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.db import open_db
+from core.projects import create_project
 from sources import gdrive
 from tests.fake_drive import FakeDrive
 from worker import queue
@@ -132,3 +133,14 @@ def test_no_drive_is_noop(settings):
     conn = open_db(settings.database_path)
     assert gdrive.DrivePoller(settings).poll(conn) == []
     assert not gdrive.configured(settings)
+
+
+def test_old_projects_get_folders_after_connecting(settings, drive):
+    conn = open_db(settings.database_path)
+    p = create_project(conn, settings.library_path, "Старий концерт")  # створений до підключення Drive
+    gdrive.DrivePoller(settings).poll(conn)
+    run_all(settings, conn)
+    root = gdrive.root_folder(conn, settings, drive)
+    names = drive.names_in(root)
+    assert "Старий концерт" in names and "Музика" in names
+    assert str(p["id"]) in gdrive._state(conn, "drive_projects")

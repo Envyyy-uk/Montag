@@ -248,6 +248,10 @@ class DrivePoller:
         root = root_folder(conn, self.settings, drive)
         self._poll_music(conn, drive, root)
         folders = _state(conn, "drive_projects")
+        # проєкти, створені до підключення Drive, теж отримують папку
+        for row in conn.execute("SELECT id FROM projects").fetchall():
+            if str(row["id"]) not in folders:
+                queue.enqueue(conn, "drive_create_folder", {"project_id": row["id"]}, project_id=row["id"])
         by_folder = {v["id"]: int(k) for k, v in folders.items()}
         queued, alive = [], set()
         for f in drive.list_children(root):
