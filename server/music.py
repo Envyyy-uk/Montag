@@ -24,6 +24,8 @@ class Suggest(BaseModel):
 
 class Use(BaseModel):
     rerender: bool = False
+    start: float | None = None   # шматок треку, с (за замовчуванням — найкращий під довжину кліпу)
+    end: float | None = None
 
 
 @router.get("/music")
@@ -79,7 +81,11 @@ def use(project_id: int, track_id: int, body: Use, conn: sqlite3.Connection = De
     from edit import music_pick
     _project(conn, project_id)
     try:
-        out = music_pick.use_track(conn, settings, project_id, track_id)
+        if body.start is None or body.end is None:
+            from edit.build import project_params
+            frag = music_pick._best_fragment(settings, track_id, float(project_params(_project(conn, project_id), conn)["length"] or 60))
+            body.start, body.end = (frag["start"], frag["end"]) if frag else (None, None)
+        out = music_pick.use_track(conn, settings, project_id, track_id, body.start, body.end)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     if body.rerender:

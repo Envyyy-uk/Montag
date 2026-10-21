@@ -8,6 +8,7 @@ export default function Project() {
   const [ov, , setOv] = usePoll(() => api.get(`/api/projects/${id}/overview`), 3000, [id]);
   const [styles] = usePoll(() => api.get("/api/styles"), 60000);
   const [toast, setToast] = useState("");
+  const [trackKey, setTrackKey] = useState(0);
   if (!ov) return <VhsScreen message="Завантаження проєкту…" />;
 
   const busy = ov.jobs.filter((j) => j.status !== "awaiting_confirm");
@@ -62,9 +63,11 @@ export default function Project() {
         <button className="pill rec" onClick={async () => { if (await ask("Почати монтаж? Якщо є ключ Gemini — спершу AI-оцінка кадрів (покаже ціну, якщо більше $1).")) act(() => api.post(`/api/projects/${id}/edit`), "Монтую"); }}>● Монтувати</button>
       )}
 
-      <MusicBox id={id} onDone={(m) => { setToast(m); refresh(); }} />
+      <MusicBox id={id} onDone={(m) => { setToast(m); refresh(); }} onPicked={(m) => { setToast(m); setTrackKey((k) => k + 1); refresh(); }} />
 
-      {ov.tracks > 0 && <EnergyStrip key={ov.tracks} id={id} onSaved={(m) => { setToast(m); refresh(); }} />}
+      {ov.tracks > 0 && <EnergyStrip key={`${ov.tracks}-${trackKey}`} id={id} onSaved={(m) => { setToast(m); refresh(); }} />}
+
+      {styles && <StyleBox id={id} ov={ov} styles={styles} act={act} />}
 
       {style && (
         <Glass className="stack">
@@ -198,6 +201,7 @@ function EnergyStrip({ id, onSaved }) {
   };
   const up = () => { drag.current = null; };
   const dirty = saved && (Math.abs(win.start - saved.start) > 0.05 || Math.abs(win.end - saved.end) > 0.05);
+  const pending = dirty || !tr.applied;  // шматок змінено або трек щойно взято — кліп ще не перемонтовано
   const play = () => {
     const a = audio.current;
     if (!a) return;
@@ -214,7 +218,7 @@ function EnergyStrip({ id, onSaved }) {
     if (!(await ask(`Перемонтувати кліп під шматок ${fmtTime(win.start)}–${fmtTime(win.end)}?`))) return;
     await api.put(`/api/projects/${id}/clip-settings`, { track_start: win.start, track_end: win.end });
     await api.post(`/api/projects/${id}/reedit`);
-    setSaved(win);
+    setSaved(win); setTr({ ...tr, applied: true });
     onSaved(`Шматок треку ${fmtTime(win.start)}–${fmtTime(win.end)} — перемонтовую`);
   };
   const barW = 100 / tr.bars.length;
@@ -222,7 +226,8 @@ function EnergyStrip({ id, onSaved }) {
     <Glass className="stack">
       <audio ref={audio} src={`/api/projects/${id}/track.audio`} preload="none" onTimeUpdate={tick} onPause={() => setPlaying(false)} />
       <div className="row spread">
-        <div className="label">Трек · {Math.round(tr.tempo)} BPM</div>
+        <div className="label" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "60%" }}>
+          {tr.title || "Трек"} · {Math.round(tr.tempo)} BPM</div>
         <div className="tc" style={{ fontSize: 13 }}>{fmtTime(win.start)}–{fmtTime(win.end)} · {Math.round(win.end - win.start)} с</div>
       </div>
       <div className="energy" ref={box} style={{ touchAction: "none" }} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
@@ -239,7 +244,7 @@ function EnergyStrip({ id, onSaved }) {
       </div>
       <div className="row wrap">
         <button className="pill small" onClick={play}>{playing ? "■ Стоп" : "▶ Прослухати"}</button>
-        {dirty && <button className="pill small primary" onClick={apply}>Застосувати</button>}
+        {pending && <button className="pill small primary" onClick={apply}>Застосувати</button>}
         {dirty && <button className="pill small" onClick={() => setWin(saved)}>Скасувати</button>}
       </div>
     </Glass>
@@ -344,7 +349,7 @@ function Versions({ id, onChange }) {
 }
 
 /** Підбір музики: 3 треки з твоєї бібліотеки під це відео + ідеї нових пісень (SoundCloud). */
-function MusicBox({ id, onDone }) {
+function MusicBox({ id, onDone, onPicked }) {
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
   const [lib, setLib] = useState(null);
@@ -369,11 +374,13 @@ function MusicBox({ id, onDone }) {
     a.play().then(() => setPlaying(p.track_id)).catch(() => {});
     a.ontimeupdate = () => { if (p.fragment && a.currentTime >= p.fragment.end) { a.pause(); setPlaying(null); } };
   };
+  // «Взяти» — трек стає в смужку нижче з найкращим шматком; межі правиш там, перемонтаж — кнопкою «Застосувати»
   const take = async (p) => {
     audio.current?.pause(); setPlaying(null);
-    if (!(await ask(`Взяти «${p.title}» для кліпу і перемонтувати?`))) return;
-    try { await api.post(`/api/projects/${id}/music/${p.track_id}/use`, { rerender: true }); onDone(`«${p.title}» — перемонтовую`); }
-    catch (e) { onDone(e.message); }
+    try {
+      await api.post(`/api/projects/${id}/music/${p.track_id}/use`, p.fragment ? { start: p.fragment.start, end: p.fragment.end } : {});
+      onPicked(`«${p.title}» узято — вибери шматок нижче і натисни «Застосувати»`);
+    } catch (e) { onDone(e.message); }
   };
   const empty = lib && lib.tracks.filter((t) => t.status === "analyzed").length === 0;
   return (
@@ -400,6 +407,17 @@ function MusicBox({ id, onDone }) {
           </div>
         </div>
       ))}
+      {lib && lib.tracks.filter((t) => t.status === "analyzed").length > 0 && (
+        <select className="field" value="" onChange={(e) => {
+          const t = lib.tracks.find((x) => String(x.id) === e.target.value);
+          if (t) take({ track_id: t.id, title: t.title });
+        }}>
+          <option value="">Або будь-який трек з бібліотеки…</option>
+          {lib.tracks.filter((t) => t.status === "analyzed").map((t) => (
+            <option key={t.id} value={t.id}>{t.artist ? `${t.artist} — ` : ""}{t.title} · {t.tempo} BPM</option>
+          ))}
+        </select>
+      )}
       {res && res.ideas.length > 0 && (
         <div className="stack" style={{ gap: 4, paddingTop: 8 }}>
           <div className="label">Ідеї нових пісень</div>
@@ -432,4 +450,34 @@ function DeleteProject({ id, onError }) {
     } catch (e) { onError(e.message); }
   };
   return <button className="pill small" style={{ alignSelf: "center", opacity: 0.8, marginTop: 24 }} onClick={run}>🗑 Видалити проєкт</button>;
+}
+
+/** Стиль вручну: усі стилі + рівень 1–3. Перемонтаж — лише кнопкою з питанням. */
+function StyleBox({ id, ov, styles, act }) {
+  const cur = ov.style;
+  const changed = ov.clip && ((ov.clip.summary.style && ov.clip.summary.style !== cur.name) ||
+    (ov.clip.summary.level && ov.clip.summary.level !== cur.level));
+  return (
+    <Glass className="stack">
+      <div className="label">Стиль</div>
+      <div className="row wrap">
+        {styles.map((s) => (
+          <button key={s.id} className={`pill small ${cur.id === s.id ? "on" : ""}`}
+            onClick={() => act(() => api.put(`/api/projects/${id}/style`, { style_id: s.id }), `Стиль: ${s.name}`)}>{s.name}</button>
+        ))}
+      </div>
+      <div className="row">
+        <span className="faint" style={{ fontSize: 13 }}>Сила ефекту</span>
+        {[1, 2, 3].map((l) => (
+          <button key={l} className={`pill small ${cur.level === l ? "on" : ""}`}
+            onClick={() => act(() => api.put(`/api/projects/${id}/clip-settings`, { style_level: l }), `Рівень ${l}`)}>{l}</button>
+        ))}
+      </div>
+      {changed && (
+        <button className="pill small primary" onClick={async () => {
+          if (await ask(`Перемонтувати кліп у стилі «${cur.name}», рівень ${cur.level}? Gemini не потрібен.`)) act(() => api.post(`/api/projects/${id}/reedit`), "Перемонтовую в новому стилі");
+        }}>Перемонтувати в «{cur.name}»</button>
+      )}
+    </Glass>
+  );
 }

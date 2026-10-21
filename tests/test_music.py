@@ -120,3 +120,18 @@ def test_drive_music_folder_is_not_a_project(settings, monkeypatch, songs):
     assert fid not in fake.deleted
     assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0
     assert conn.execute("SELECT status FROM music_tracks WHERE path = 'drive/Drive Song.wav'").fetchone()[0] == "analyzed"
+
+
+def test_use_track_with_fragment_shows_in_strip_until_applied(lib, settings):
+    p = _concert(lib, settings)
+    tid = lib.execute("SELECT id FROM music_tracks WHERE title = 'Fast One'").fetchone()[0]
+    with TestClient(create_app(settings, start_worker=False)) as c:
+        r = c.post(f"/api/projects/{p['id']}/music/{tid}/use", json={"start": 12.0, "end": 40.0}).json()
+        t = c.get(f"/api/projects/{p['id']}/track").json()  # одразу, ще до обробки в черзі
+        assert t["media_id"] == r["media_id"] and t["title"] == "Band - Fast One"
+        assert t["window"] == {"start": 12.0, "end": 40.0} and t["applied"] is False
+        # без меж — найкращий шматок під довжину кліпу
+        tid2 = lib.execute("SELECT id FROM music_tracks WHERE title = 'Calm'").fetchone()[0]
+        c.post(f"/api/projects/{p['id']}/music/{tid2}/use", json={})
+        w = c.get(f"/api/projects/{p['id']}/track").json()["window"]
+        assert w and w["end"] - w["start"] >= 5

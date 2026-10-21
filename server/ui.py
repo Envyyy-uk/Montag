@@ -97,12 +97,20 @@ def track_energy(project_id: int, conn: sqlite3.Connection = Depends(db),
 
     p = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     from edit.build import project_tracks
-    t = next(iter(project_tracks(conn, project_id)), None)
-    if p is None or t is None:
+    from server.edits import main_edit
+    if p is None:
+        raise HTTPException(404, "Проєкт не знайдено")
+    # трек, щойно взятий з бібліотеки, ще може йти по черзі обробки — його аналіз уже скопійовано
+    t, ta_path = None, None
+    for row in project_tracks(conn, project_id, analyzed=False):
+        path = settings.library_path / p["slug"] / "analysis" / f"{row['id']}_track.json"
+        if path.exists():
+            t, ta_path = row, path
+            break
+    if t is None:
         raise HTTPException(404, "Треку немає")
-    ta = TrackAnalysis.load(settings.library_path / p["slug"] / "analysis" / f"{t['id']}_track.json")
-    edit = conn.execute("SELECT timeline_path FROM edits WHERE project_id = ? AND kind = 'clip'"
-                        " ORDER BY version DESC LIMIT 1", (project_id,)).fetchone()
+    ta = TrackAnalysis.load(ta_path)
+    edit = main_edit(conn, project_id, "clip")
     window = None
     clip = json.loads(p["settings"] or "{}").get("clip", {})
     if clip.get("track_start") is not None and clip.get("track_end") is not None:
@@ -110,8 +118,14 @@ def track_energy(project_id: int, conn: sqlite3.Connection = Depends(db),
     elif edit:
         tl = json.loads((settings.library_path / edit["timeline_path"]).read_text(encoding="utf-8"))
         window = {"start": tl["track_in"], "end": tl["track_out"]}
+    applied = False  # чи поточний кліп змонтовано саме під цей трек і цей шматок
+    if edit and window:
+        tl = json.loads((settings.library_path / edit["timeline_path"]).read_text(encoding="utf-8"))
+        applied = tl.get("track_media_id") == t["id"] and abs(tl.get("track_in", -9) - window["start"]) < 0.6 \
+            and abs(tl.get("track_out", -9) - window["end"]) < 0.6
     bars = [{"t": ta.bar_start_time(k), "energy": e, "level": ta.bar_level[k]} for k, e in enumerate(ta.bar_energy)]
-    return {"duration": ta.duration, "tempo": ta.tempo, "bars": bars, "window": window,
+    return {"duration": ta.duration, "tempo": ta.tempo, "bars": bars, "window": window, "applied": applied,
+            "media_id": t["id"], "title": Path(t["filename"]).stem,
             "drops": [ta.bar_start_time(k) for k in ta.drops],
             "choruses": [[ta.bar_start_time(a), ta.bar_start_time(min(b, len(ta.downbeats) - 1))] for a, b in ta.choruses]}
 

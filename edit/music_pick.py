@@ -152,7 +152,8 @@ def suggest(conn: sqlite3.Connection, settings: Settings, project_id: int, use_a
     return result
 
 
-def use_track(conn: sqlite3.Connection, settings: Settings, project_id: int, track_id: int) -> dict:
+def use_track(conn: sqlite3.Connection, settings: Settings, project_id: int, track_id: int,
+              start: float | None = None, end: float | None = None) -> dict:
     """Додає трек бібліотеки в проєкт (копією — файл у music/ лишається як є) і бере найкращий шматок."""
     import shutil
 
@@ -179,6 +180,8 @@ def use_track(conn: sqlite3.Connection, settings: Settings, project_id: int, tra
     clip = stored.get("clip", {})
     clip.pop("track_start", None)
     clip.pop("track_end", None)
+    if start is not None and end is not None and end - start >= 5:
+        clip["track_start"], clip["track_end"] = round(start, 2), round(end, 2)  # шматок, вибраний у підборі
     stored["clip"] = clip
     stored["track_media_id"] = media["id"]
     conn.execute("UPDATE projects SET settings = ? WHERE id = ?", (json.dumps(stored, ensure_ascii=False), project_id))
